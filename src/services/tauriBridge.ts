@@ -86,44 +86,6 @@ export async function recordPillDraggedPositionNative(): Promise<void> {
   await invoke('record_pill_position');
 }
 
-export interface SyncLovelaceWebviewParams {
-  url: string;
-  visible: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  hideHaHeader: boolean;
-}
-
-export async function syncLovelaceWebviewNative(
-  params: SyncLovelaceWebviewParams,
-): Promise<void> {
-  if (!isTauriRuntime()) return;
-  const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('sync_lovelace_webview', {
-    url: params.url,
-    visible: params.visible,
-    x: params.x,
-    y: params.y,
-    width: params.width,
-    height: params.height,
-    hideHaHeader: params.hideHaHeader,
-  });
-}
-
-export async function reloadLovelaceWebviewNative(): Promise<void> {
-  if (!isTauriRuntime()) return;
-  const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('reload_lovelace_webview');
-}
-
-export async function clearLovelaceSessionNative(): Promise<void> {
-  if (!isTauriRuntime()) return;
-  const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('clear_lovelace_session');
-}
-
 export async function getAppVersion(): Promise<string> {
   if (!isTauriRuntime()) return '0.1.0';
   try {

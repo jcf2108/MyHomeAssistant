@@ -1,9 +1,7 @@
 mod credentials;
-mod lovelace_view;
 mod media_hook;
 mod window_ctl;
 
-use lovelace_view::LovelaceWebviewState;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -13,7 +11,6 @@ use window_ctl::WindowGeometryState;
 pub fn run() {
     tauri::Builder::default()
         .manage(WindowGeometryState::default())
-        .manage(LovelaceWebviewState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -120,9 +117,6 @@ pub fn run() {
             credentials::save_ha_token,
             credentials::get_ha_token,
             credentials::delete_ha_token,
-            lovelace_view::sync_lovelace_webview,
-            lovelace_view::reload_lovelace_webview,
-            lovelace_view::clear_lovelace_session,
             media_hook::set_pc_grace_seconds,
             window_ctl::set_widget_expanded,
             window_ctl::set_window_focusable,

@@ -1,25 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AppWindow,
   ArrowLeft,
   ChevronDown,
-  LayoutGrid,
   Link2,
-  PanelTop,
-  PanelTopClose,
   RefreshCw,
   Settings,
   Volume2,
   Wifi,
   WifiOff,
 } from 'lucide-react';
-import { EmbeddedLovelaceHost } from './components/EmbeddedLovelaceHost';
 import { FlyoutResizeHandles } from './components/FlyoutResizeHandles';
 import type { HaTileActions } from './components/HaTileCard';
 import { LovelaceDashboardView } from './components/LovelaceDashboardView';
 import { MiniPill } from './components/MiniPill';
 import { SettingsView } from './components/SettingsView';
-import { VolumeOutputBar } from './components/VolumeOutputBar';
 import { PREVIEW_ENTITIES, PREVIEW_LOVELACE_CONFIG } from './data/previewEntities';
 import {
   HomeAssistantWsClient,
@@ -29,13 +23,11 @@ import {
 import {
   type FlyoutResizeDirection,
   checkAndOptionallyInstallUpdate,
-  clearLovelaceSessionNative,
   deleteSecureToken,
   getAppVersion,
   getAutostartEnabled,
   getSecureToken,
   isTauriRuntime,
-  reloadLovelaceWebviewNative,
   resetPillAboveClockNative,
   saveSecureToken,
   setAutostartEnabled,
@@ -80,8 +72,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   activeMediaPlayerId: '',
   selectedDashboardPath: null,
   selectedViewIndex: 0,
-  dashboardDisplayMode: 'embedded',
-  hideHaHeader: false,
   enabledMediaPlayers: [],
   enabledLights: [],
   enabledScenes: [],
@@ -121,8 +111,6 @@ function loadSavedSettings(): AppSettings {
       volumeTargetMode: parsed.volumeTargetMode || 'auto',
       selectedDashboardPath: parsed.selectedDashboardPath ?? null,
       selectedViewIndex: parsed.selectedViewIndex ?? 0,
-      dashboardDisplayMode: parsed.dashboardDisplayMode || 'embedded',
-      hideHaHeader: Boolean(parsed.hideHaHeader),
       volumeStepPct: stepPct,
     };
   } catch {
@@ -214,20 +202,6 @@ export const App: React.FC = () => {
   const activeLovelaceConfig = usingPreview
     ? PREVIEW_LOVELACE_CONFIG
     : overviewMeta.lovelaceConfig;
-
-  const embeddedLovelaceUrl = useMemo(() => {
-    if (!cleanHaBaseUrl) return '';
-    return settings.selectedDashboardPath
-      ? `${cleanHaBaseUrl}/${settings.selectedDashboardPath}`
-      : `${cleanHaBaseUrl}/`;
-  }, [cleanHaBaseUrl, settings.selectedDashboardPath]);
-
-  const showEmbeddedLovelace =
-    nativeTauri &&
-    Boolean(cleanHaBaseUrl) &&
-    !usingPreview &&
-    !showSettings &&
-    settings.dashboardDisplayMode === 'embedded';
 
   // Synchronisation initiale des réglages natifs Tauri
   useEffect(() => {
@@ -339,10 +313,19 @@ export const App: React.FC = () => {
     };
   }, [nativeTauri, settings.autoCheckUpdates]);
 
-  // Extraction des vues, sections et tuiles (pour favoris pilule, routage audio et mode grille)
+  // Extraction des vues, sections et tuiles (fidèle à l'Aperçu Lovelace Home Assistant)
+  const registryCtx = useMemo(
+    () => ({
+      areas: overviewMeta.areas,
+      entityRegistry: overviewMeta.entityRegistry,
+      deviceRegistry: overviewMeta.deviceRegistry,
+    }),
+    [overviewMeta.areas, overviewMeta.deviceRegistry, overviewMeta.entityRegistry],
+  );
+
   const overviewEntityIds = useMemo(
-    () => extractOverviewEntityIds(activeLovelaceConfig, entitiesMap),
-    [activeLovelaceConfig, entitiesMap],
+    () => extractOverviewEntityIds(activeLovelaceConfig, entitiesMap, registryCtx),
+    [activeLovelaceConfig, entitiesMap, registryCtx],
   );
 
   const views = useMemo(
@@ -361,7 +344,7 @@ export const App: React.FC = () => {
 
   const { badges: currentBadges, sections: currentSections } = useMemo(() => {
     if (activeLovelaceConfig && views[safeViewIndex]) {
-      return normalizeLovelaceView(views[safeViewIndex], entitiesMap);
+      return normalizeLovelaceView(views[safeViewIndex], entitiesMap, registryCtx);
     }
     const autoSections = buildAutoAreasOverview(
       entitiesMap,
@@ -376,6 +359,7 @@ export const App: React.FC = () => {
     overviewMeta.areas,
     overviewMeta.deviceRegistry,
     overviewMeta.entityRegistry,
+    registryCtx,
     safeViewIndex,
     views,
   ]);
@@ -1168,7 +1152,6 @@ export const App: React.FC = () => {
     updateSettings({
       haUrl: cleanUrl,
       previewMode: false,
-      dashboardDisplayMode: 'embedded',
     });
     if (cleanUrl && activeToken) {
       wsClientRef.current?.connect(cleanUrl, activeToken, settings.selectedDashboardPath);
@@ -1177,7 +1160,6 @@ export const App: React.FC = () => {
 
   const handleClearToken = async () => {
     await deleteSecureToken();
-    await clearLovelaceSessionNative();
     setHasStoredToken(false);
     wsClientRef.current?.disconnect();
     setLiveEntities({});
@@ -1191,7 +1173,6 @@ export const App: React.FC = () => {
 
   const handleRefreshOverview = () => {
     void wsClientRef.current?.refreshOverview();
-    void reloadLovelaceWebviewNative();
   };
 
   const handleToggleAutostart = async (next: boolean) => {
@@ -1381,73 +1362,16 @@ export const App: React.FC = () => {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          {nativeTauri && Boolean(cleanHaBaseUrl) && !usingPreview && !showSettings && (
-            <>
-              {settings.dashboardDisplayMode === 'embedded' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateSettings({ hideHaHeader: !settings.hideHaHeader })
-                    }
-                    aria-label={
-                      settings.hideHaHeader
-                        ? 'Afficher la barre Home Assistant'
-                        : 'Masquer la barre Home Assistant'
-                    }
-                    title={settings.hideHaHeader ? 'Barre HA' : 'Mode épuré'}
-                    className={`flex h-7 w-7 items-center justify-center rounded-control transition-colors ${
-                      settings.hideHaHeader
-                        ? 'bg-fluent-accent/20 text-fluent-accent'
-                        : 'text-fluent-secondary hover:bg-fluent-elevated hover:text-fluent-ink'
-                    }`}
-                  >
-                    {settings.hideHaHeader ? (
-                      <PanelTop className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    ) : (
-                      <PanelTopClose className="h-3.5 w-3.5" strokeWidth={1.75} />
-                    )}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void reloadLovelaceWebviewNative()}
-                    aria-label="Actualiser la page Home Assistant"
-                    title="Actualiser"
-                    className="flex h-7 w-7 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
-                  >
-                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  </button>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() =>
-                  updateSettings({
-                    dashboardDisplayMode:
-                      settings.dashboardDisplayMode === 'embedded' ? 'tiles' : 'embedded',
-                  })
-                }
-                aria-label={
-                  settings.dashboardDisplayMode === 'embedded'
-                    ? 'Basculer en grille rapide'
-                    : 'Basculer sur la page Lovelace Home Assistant'
-                }
-                title={
-                  settings.dashboardDisplayMode === 'embedded'
-                    ? 'Grille rapide'
-                    : 'Lovelace HA'
-                }
-                className="flex h-7 w-7 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
-              >
-                {settings.dashboardDisplayMode === 'embedded' ? (
-                  <LayoutGrid className="h-3.5 w-3.5" strokeWidth={1.75} />
-                ) : (
-                  <AppWindow className="h-3.5 w-3.5" strokeWidth={1.75} />
-                )}
-              </button>
-            </>
+          {status === 'connected' && !usingPreview && !showSettings && (
+            <button
+              type="button"
+              onClick={handleRefreshOverview}
+              aria-label="Synchroniser l'Aperçu Home Assistant"
+              title="Synchroniser"
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
+            >
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
           )}
 
           <button
@@ -1458,14 +1382,14 @@ export const App: React.FC = () => {
             }}
             aria-label="Replier en pilule"
             title="Replier"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
+            className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
           >
             <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
       </header>
 
-      {/* Corps principal : Page Lovelace Home Assistant intégrée, Grille rapide ou Paramètres */}
+      {/* Corps principal : Interface intégrée native (sans connexion navigateur ni menu HA) ou Paramètres */}
       {showSettings ? (
         <SettingsView
           settings={settings}
@@ -1510,24 +1434,6 @@ export const App: React.FC = () => {
               Démo
             </button>
           </div>
-        </div>
-      ) : showEmbeddedLovelace ? (
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <VolumeOutputBar
-            volumePlayers={volumeCapablePlayers}
-            volumeTargetMode={settings.volumeTargetMode}
-            resolvedVolumeTarget={resolvedVolumeTarget}
-            unreliableVolumeIds={unreliableVolumeIds}
-            onChangeVolumeTargetMode={(mode) => updateSettings({ volumeTargetMode: mode })}
-            onVolumeSet={tileActions.onMediaVolumeSet}
-            onVolumeStep={tileActions.onMediaVolumeStep}
-            onMuteToggle={tileActions.onMediaMuteToggle}
-          />
-          <EmbeddedLovelaceHost
-            url={embeddedLovelaceUrl}
-            active={showEmbeddedLovelace}
-            hideHaHeader={settings.hideHaHeader}
-          />
         </div>
       ) : (
         <LovelaceDashboardView

@@ -24,7 +24,10 @@ export type SupportedDomain =
   | 'input_select'
   | 'number'
   | 'input_number'
-  | 'weather';
+  | 'weather'
+  | 'camera'
+  | 'image'
+  | 'person';
 
 export interface HaEntityAttributes {
   friendly_name?: string;
@@ -108,6 +111,10 @@ export interface LovelaceCardConfig {
   heading_style?: 'title' | 'subtitle';
   icon?: string;
   color?: string;
+  image?: string | { media_content_id?: string };
+  picture?: string;
+  camera_image?: string;
+  area?: string;
   vertical?: boolean;
   show_entity_picture?: boolean;
   features?: LovelaceFeatureConfig[];
@@ -161,6 +168,7 @@ export interface HaAreaEntry {
   area_id: string;
   name: string;
   icon?: string | null;
+  picture?: string | null;
 }
 
 export interface HaEntityRegistryEntry {
@@ -190,8 +198,6 @@ export interface HaOverviewMetadata {
   deviceRegistry: Record<string, HaDeviceRegistryEntry>;
 }
 
-export type DashboardDisplayMode = 'embedded' | 'tiles';
-
 export interface AppSettings {
   haUrl: string;
   /** 'auto' (Ampli actif > Télé active > Lecteur actif) ou entity_id explicite */
@@ -199,8 +205,6 @@ export interface AppSettings {
   activeMediaPlayerId: string;
   selectedDashboardPath: string | null;
   selectedViewIndex: number;
-  dashboardDisplayMode: DashboardDisplayMode;
-  hideHaHeader: boolean;
   enabledMediaPlayers: string[];
   enabledLights: string[];
   enabledScenes: string[];

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { resolveHaMediaUrl } from '../services/haWebsocket';
 import type { HaEntity, LovelaceViewConfig } from '../types/ha';
 import { formatHaStateShort, renderHaEntityIcon } from '../utils/haIcons';
 import type {
@@ -22,6 +23,31 @@ interface LovelaceDashboardViewProps {
   onChangeVolumeTargetMode: (mode: string) => void;
   actions: HaTileActions;
 }
+
+const SectionBanner: React.FC<{ haBaseUrl: string; rawUrl?: string }> = ({
+  haBaseUrl,
+  rawUrl,
+}) => {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [rawUrl]);
+
+  const resolved = resolveHaMediaUrl(haBaseUrl, rawUrl);
+  if (!resolved || failed) return null;
+
+  return (
+    <div className="h-24 w-full overflow-hidden rounded-card border border-white/[0.06] bg-fluent-elevated">
+      <img
+        src={resolved}
+        alt=""
+        draggable={false}
+        onError={() => setFailed(true)}
+        className="h-full w-full object-cover"
+      />
+    </div>
+  );
+};
 
 export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
   views,
@@ -103,7 +129,7 @@ export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
         </div>
       )}
 
-      {/* Sections & Grille 2 colonnes de Tuiles */}
+      {/* Sections & Grille adaptative (2 à 4 colonnes selon la largeur du Flyout) */}
       <div className="flex flex-col gap-3.5 px-3.5 py-3">
         {sections.length === 0 ? (
           <div className="py-8 text-center text-xs text-fluent-secondary">
@@ -148,7 +174,14 @@ export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-2">
+                {section.bannerImageUrl && (
+                  <SectionBanner
+                    haBaseUrl={actions.haBaseUrl}
+                    rawUrl={section.bannerImageUrl}
+                  />
+                )}
+
+                <div className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3 min-[800px]:grid-cols-4">
                   {renderedItems.map((tile) => (
                     <HaTileCard
                       key={tile.key}

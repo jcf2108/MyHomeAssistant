@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Check,
   ChevronDown,
@@ -84,6 +84,12 @@ const HVAC_LABELS: Record<string, string> = {
 export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions }) => {
   const [expanded, setExpanded] = useState(false);
   const [justTriggered, setJustTriggered] = useState(false);
+  const [imgError, setImgError] = useState(false);
+
+  const rawPicture = tile.imageUrl || entity?.attributes.entity_picture;
+  useEffect(() => {
+    setImgError(false);
+  }, [rawPicture]);
 
   if (!entity) return null;
 
@@ -127,10 +133,17 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
     }
   };
 
-  const coverUrl =
-    domain === 'media_player'
-      ? resolveHaMediaUrl(actions.haBaseUrl, entity.attributes.entity_picture)
+  const resolvedPictureUrl = resolveHaMediaUrl(actions.haBaseUrl, rawPicture);
+  const validPictureUrl =
+    resolvedPictureUrl &&
+    !imgError &&
+    (domain !== 'media_player' ||
+      Boolean(tile.imageUrl) ||
+      entity.state === 'playing' ||
+      entity.state === 'paused')
+      ? resolvedPictureUrl
       : null;
+  const showBannerImage = Boolean(tile.showBanner && validPictureUrl);
 
   const mediaFeatures = entity.attributes.supported_features ?? 0;
   const mediaHasPower =
@@ -170,6 +183,25 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             : 'border-white/[0.06] bg-fluent-elevated/85 hover:bg-fluent-hover/75'
       } p-2.5`}
     >
+      {/* Vignette visuelle haute (cartes picture-entity, caméras, images HA) */}
+      {showBannerImage && validPictureUrl && (
+        <button
+          type="button"
+          onClick={handlePrimaryClick}
+          className={`mb-2 h-28 w-full overflow-hidden rounded-control border border-white/[0.06] bg-fluent-base ${
+            toggleable || hasRichDetails ? 'cursor-pointer' : 'cursor-default'
+          }`}
+        >
+          <img
+            src={validPictureUrl}
+            alt=""
+            draggable={false}
+            onError={() => setImgError(true)}
+            className="h-full w-full object-cover"
+          />
+        </button>
+      )}
+
       {/* Ligne principale de la Tuile Home Assistant */}
       <div className="flex items-center gap-2.5">
         <button
@@ -179,7 +211,7 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             toggleable || hasRichDetails ? 'cursor-pointer' : 'cursor-default'
           }`}
         >
-          {/* Médaillon icône circulaire 36x36 style Tile HA */}
+          {/* Médaillon icône ou image circulaire 36x36 style Tile HA */}
           <span
             style={
               accentColor
@@ -197,8 +229,14 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
                   : 'bg-white/[0.06] text-fluent-secondary'
             }`}
           >
-            {coverUrl && (entity.state === 'playing' || entity.state === 'paused') ? (
-              <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+            {!showBannerImage && validPictureUrl ? (
+              <img
+                src={validPictureUrl}
+                alt=""
+                draggable={false}
+                onError={() => setImgError(true)}
+                className="h-full w-full object-cover"
+              />
             ) : justTriggered ? (
               <Check className="h-4 w-4" strokeWidth={2.25} />
             ) : (

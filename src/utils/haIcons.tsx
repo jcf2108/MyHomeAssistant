@@ -5,6 +5,7 @@ import {
   BatteryCharging,
   Blinds,
   Bot,
+  Camera,
   CloudSun,
   Disc3,
   DoorClosed,
@@ -15,6 +16,7 @@ import {
   Flame,
   Gauge,
   Home,
+  Image,
   Lamp,
   Lightbulb,
   Lock,
@@ -142,6 +144,9 @@ export function renderHaEntityIcon(
     if (iconStr.includes('wifi') || iconStr.includes('network')) {
       return <Wifi className={className} strokeWidth={1.75} />;
     }
+    if (iconStr.includes('camera') || iconStr.includes('cctv') || iconStr.includes('video')) {
+      return <Camera className={className} strokeWidth={1.75} />;
+    }
   }
 
   // 2. Correspondances par domaine et device_class Home Assistant
@@ -191,6 +196,10 @@ export function renderHaEntityIcon(
       return <CloudSun className={className} strokeWidth={1.75} />;
     case 'person':
       return <User className={className} strokeWidth={1.75} />;
+    case 'camera':
+      return <Camera className={className} strokeWidth={1.75} />;
+    case 'image':
+      return <Image className={className} strokeWidth={1.75} />;
     case 'select':
     case 'input_select':
     case 'number':
@@ -364,6 +373,13 @@ export function formatHaStateShort(entity: HaEntity): string {
   if (domain === 'person') {
     if (sl === 'home') return 'Maison';
     if (sl === 'not_home') return 'Absent';
+    return s;
+  }
+
+  if (domain === 'camera') {
+    if (sl === 'streaming') return 'Direct';
+    if (sl === 'recording') return 'Enreg.';
+    if (sl === 'idle') return 'En veille';
     return s;
   }
 

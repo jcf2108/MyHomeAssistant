@@ -585,7 +585,6 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
         }
 
         state.transitioning.store(true, Ordering::SeqCst);
-        crate::lovelace_view::hide_lovelace_webview_sync(&app);
 
         if let Ok(mut exp_guard) = state.is_expanded.lock() {
             *exp_guard = false;
