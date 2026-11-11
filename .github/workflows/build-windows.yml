@@ -43,12 +43,13 @@ jobs:
         id: prep
         shell: bash
         env:
-          HAS_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           REPO_SLUG: ${{ github.repository }}
           RUN_NUM: ${{ github.run_number }}
         run: |
           node -e '
             const fs = require("fs");
+            const hasSigningKey = Boolean(process.env.SIGNING_KEY && process.env.SIGNING_KEY.trim().length > 0);
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             const [major, minor] = pkg.version.split(".");
             const nextVersion = `${major}.${minor}.${process.env.RUN_NUM}`;
@@ -61,7 +62,7 @@ jobs:
             tauriConf.plugins.updater.endpoints = [
               `https://github.com/${process.env.REPO_SLUG}/releases/latest/download/latest.json`
             ];
-            if (process.env.HAS_SIGNING_KEY !== "true") {
+            if (!hasSigningKey) {
               console.warn("TAURI_SIGNING_PRIVATE_KEY absent : build installateur sans signature auto-update.");
               tauriConf.bundle.createUpdaterArtifacts = false;
             }
@@ -73,16 +74,17 @@ jobs:
 
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${nextVersion}\n`);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${nextVersion}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasSigningKey}\n`);
           '
 
       - name: Build Tauri Windows NSIS Installer
         run: npx tauri build --bundles nsis
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
 
       - name: Generate latest.json for Tauri Auto-Updater
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: steps.prep.outputs.has_signing_key == 'true'
         shell: bash
         env:
           VERSION: ${{ steps.prep.outputs.version }}
