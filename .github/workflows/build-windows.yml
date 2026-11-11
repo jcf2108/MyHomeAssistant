@@ -20,12 +20,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Setup Node.js 22
-        uses: actions/setup-node@v4
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: 24
           cache: 'npm'
 
       - name: Setup Rust stable
@@ -35,21 +35,60 @@ jobs:
         uses: swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
+          save-if: "true"
 
       - name: Install npm dependencies
         run: npm ci
 
-      - name: Prepare auto-incremented version & updater config
+      - name: Prepare version & preflight signing key check
         id: prep
         shell: bash
         env:
-          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           REPO_SLUG: ${{ github.repository }}
           RUN_NUM: ${{ github.run_number }}
         run: |
           node -e '
             const fs = require("fs");
-            const hasSigningKey = Boolean(process.env.SIGNING_KEY && process.env.SIGNING_KEY.trim().length > 0);
+            const { execSync } = require("child_process");
+
+            function normalizeKey(raw) {
+              if (!raw || !raw.trim()) return "";
+              const t = raw.trim();
+              if (t.startsWith("untrusted comment:")) {
+                return Buffer.from(t.replace(/\r\n/g, "\n") + "\n", "utf8").toString("base64");
+              }
+              return t.replace(/\s+/g, "");
+            }
+
+            const cleanKey = normalizeKey(process.env.RAW_SIGNING_KEY || "");
+            let hasValidSigningKey = false;
+
+            if (cleanKey) {
+              console.log("::add-mask::" + cleanKey);
+              try {
+                fs.writeFileSync("sigcheck.tmp", "ok");
+                execSync("npx tauri signer sign sigcheck.tmp", {
+                  env: {
+                    ...process.env,
+                    TAURI_SIGNING_PRIVATE_KEY: cleanKey,
+                    TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+                  },
+                  stdio: "pipe"
+                });
+                hasValidSigningKey = true;
+              } catch (err) {
+                const msg = ((err.stderr && err.stderr.toString()) || err.message || "signer error")
+                  .replace(/\r?\n/g, " | ")
+                  .slice(0, 300);
+                console.log("::warning title=Signature auto-update désactivée::" + msg);
+                hasValidSigningKey = false;
+              } finally {
+                fs.rmSync("sigcheck.tmp", { force: true });
+                fs.rmSync("sigcheck.tmp.sig", { force: true });
+              }
+            }
+
             const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
             const [major, minor] = pkg.version.split(".");
             const nextVersion = `${major}.${minor}.${process.env.RUN_NUM}`;
@@ -62,8 +101,7 @@ jobs:
             tauriConf.plugins.updater.endpoints = [
               `https://github.com/${process.env.REPO_SLUG}/releases/latest/download/latest.json`
             ];
-            if (!hasSigningKey) {
-              console.warn("TAURI_SIGNING_PRIVATE_KEY absent : build installateur sans signature auto-update.");
+            if (!hasValidSigningKey) {
               tauriConf.bundle.createUpdaterArtifacts = false;
             }
             fs.writeFileSync(tauriConfPath, JSON.stringify(tauriConf, null, 2) + "\n");
@@ -74,14 +112,37 @@ jobs:
 
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `version=${nextVersion}\n`);
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `tag=v${nextVersion}\n`);
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasSigningKey}\n`);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `has_signing_key=${hasValidSigningKey}\n`);
           '
 
       - name: Build Tauri Windows NSIS Installer
-        run: npx tauri build --bundles nsis
+        shell: bash
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          RAW_SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          USE_SIGNING: ${{ steps.prep.outputs.has_signing_key }}
+        run: |
+          set -o pipefail
+          if [ "$USE_SIGNING" = "true" ]; then
+            CLEAN_KEY="$(node -e '
+              const raw = (process.env.RAW_SIGNING_KEY || "").trim();
+              if (raw.startsWith("untrusted comment:")) {
+                process.stdout.write(Buffer.from(raw.replace(/\r\n/g, "\n") + "\n", "utf8").toString("base64"));
+              } else {
+                process.stdout.write(raw.replace(/\s+/g, ""));
+              }
+            ')"
+            echo "::add-mask::$CLEAN_KEY"
+            export TAURI_SIGNING_PRIVATE_KEY="$CLEAN_KEY"
+            export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+          fi
+
+          if ! npx tauri build --bundles nsis 2>&1 | tee tauri-build.log; then
+            ERR_SUMMARY="$(tail -n 25 tauri-build.log | tr '\r\n' '  ' | cut -c 1-600)"
+            echo "::error title=Tauri Build Failed::$ERR_SUMMARY"
+            rm -f tauri-build.log
+            exit 1
+          fi
+          rm -f tauri-build.log
 
       - name: Generate latest.json for Tauri Auto-Updater
         if: steps.prep.outputs.has_signing_key == 'true'
@@ -118,7 +179,7 @@ jobs:
           '
 
       - name: Upload Windows Build Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: MyHomeAssistant-Windows-x64
           path: |
@@ -128,7 +189,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub Release (Latest)
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.prep.outputs.tag }}
           name: MyHomeAssistant ${{ steps.prep.outputs.tag }} (Windows x64)
