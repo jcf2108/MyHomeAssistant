@@ -1,0 +1,300 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T10:13:00Z",
+  "title": "Design System: MyHomeAssistant",
+  "extensions": {
+    "colorMeta": {
+      "fluent-sky": {
+        "role": "primary",
+        "displayName": "Bleu Ciel Fluent",
+        "canonical": "#60a5fa",
+        "tonalRamp": [
+          "oklch(24% 0.08 255)",
+          "oklch(34% 0.11 255)",
+          "oklch(46% 0.14 255)",
+          "oklch(58% 0.16 255)",
+          "oklch(71% 0.14 255)",
+          "oklch(80% 0.11 255)",
+          "oklch(89% 0.06 255)",
+          "oklch(95% 0.03 255)"
+        ]
+      },
+      "fluent-sky-hover": {
+        "role": "primary",
+        "displayName": "Bleu Ciel Fluent Survol",
+        "canonical": "#7bb6fc",
+        "tonalRamp": [
+          "oklch(26% 0.07 255)",
+          "oklch(37% 0.10 255)",
+          "oklch(49% 0.13 255)",
+          "oklch(62% 0.14 255)",
+          "oklch(76% 0.12 255)",
+          "oklch(84% 0.09 255)",
+          "oklch(91% 0.05 255)",
+          "oklch(96% 0.02 255)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "Encre Nuit sur Accent",
+        "canonical": "#09111e",
+        "tonalRamp": [
+          "oklch(17% 0.03 255)",
+          "oklch(26% 0.03 255)",
+          "oklch(37% 0.03 255)",
+          "oklch(49% 0.03 255)",
+          "oklch(61% 0.02 255)",
+          "oklch(73% 0.02 255)",
+          "oklch(85% 0.01 255)",
+          "oklch(94% 0.01 255)"
+        ]
+      },
+      "warm-kelvin": {
+        "role": "secondary",
+        "displayName": "Ambre Kelvin Chaud",
+        "canonical": "#fbbf24",
+        "tonalRamp": [
+          "oklch(26% 0.07 84)",
+          "oklch(38% 0.10 84)",
+          "oklch(51% 0.14 84)",
+          "oklch(65% 0.16 84)",
+          "oklch(83% 0.16 84)",
+          "oklch(88% 0.12 84)",
+          "oklch(93% 0.07 84)",
+          "oklch(97% 0.03 84)"
+        ]
+      },
+      "cool-daylight": {
+        "role": "secondary",
+        "displayName": "Lumière du Jour Froide",
+        "canonical": "#7dd3fc",
+        "tonalRamp": [
+          "oklch(25% 0.06 232)",
+          "oklch(37% 0.08 232)",
+          "oklch(50% 0.11 232)",
+          "oklch(65% 0.12 232)",
+          "oklch(82% 0.10 232)",
+          "oklch(88% 0.08 232)",
+          "oklch(93% 0.04 232)",
+          "oklch(97% 0.02 232)"
+        ]
+      },
+      "online-emerald": {
+        "role": "tertiary",
+        "displayName": "Émeraude En Ligne",
+        "canonical": "#34d399",
+        "tonalRamp": [
+          "oklch(25% 0.07 162)",
+          "oklch(36% 0.10 162)",
+          "oklch(49% 0.13 162)",
+          "oklch(63% 0.15 162)",
+          "oklch(77% 0.15 162)",
+          "oklch(85% 0.11 162)",
+          "oklch(91% 0.06 162)",
+          "oklch(96% 0.03 162)"
+        ]
+      },
+      "signal-coral": {
+        "role": "tertiary",
+        "displayName": "Corail Signal",
+        "canonical": "#f87171",
+        "tonalRamp": [
+          "oklch(25% 0.09 25)",
+          "oklch(36% 0.13 25)",
+          "oklch(48% 0.16 25)",
+          "oklch(60% 0.18 25)",
+          "oklch(71% 0.17 25)",
+          "oklch(81% 0.12 25)",
+          "oklch(90% 0.06 25)",
+          "oklch(96% 0.03 25)"
+        ]
+      },
+      "flyout-anthracite": {
+        "role": "neutral",
+        "displayName": "Châssis Anthracite",
+        "canonical": "#1c1e24",
+        "tonalRamp": [
+          "oklch(18% 0.01 265)",
+          "oklch(24% 0.01 265)",
+          "oklch(33% 0.02 265)",
+          "oklch(44% 0.02 265)",
+          "oklch(57% 0.02 265)",
+          "oklch(70% 0.02 265)",
+          "oklch(83% 0.01 265)",
+          "oklch(94% 0.01 265)"
+        ]
+      },
+      "control-track": {
+        "role": "neutral",
+        "displayName": "Piste de Contrôle",
+        "canonical": "#282d37",
+        "tonalRamp": [
+          "oklch(21% 0.02 262)",
+          "oklch(29% 0.02 262)",
+          "oklch(38% 0.02 262)",
+          "oklch(49% 0.02 262)",
+          "oklch(61% 0.02 262)",
+          "oklch(73% 0.02 262)",
+          "oklch(85% 0.01 262)",
+          "oklch(95% 0.01 262)"
+        ]
+      },
+      "chalk-primary": {
+        "role": "neutral",
+        "displayName": "Craie Primaire",
+        "canonical": "#f3f5f8",
+        "tonalRamp": [
+          "oklch(22% 0.01 255)",
+          "oklch(34% 0.01 255)",
+          "oklch(46% 0.01 255)",
+          "oklch(59% 0.01 255)",
+          "oklch(72% 0.01 255)",
+          "oklch(83% 0.01 255)",
+          "oklch(91% 0.01 255)",
+          "oklch(97% 0.005 255)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Titre du média actif et états vides principaux."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "En-têtes de panneau et titres de sections sans sur-titre."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Noms courts de pièces, tuiles de scènes, listes déroulantes et champs."
+      },
+      "label": {
+        "displayName": "Label Tabulaire",
+        "purpose": "Pourcentages temps réel, valeurs Kelvin, compteurs et version."
+      }
+    },
+    "shadows": [
+      {
+        "name": "flyout-elevation",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 16px 40px rgba(0, 0, 0, 0.56), 0 4px 12px rgba(0, 0, 0, 0.34)",
+        "purpose": "Élévation flottante Acrylic de la pilule et du Flyout avec éclat spéculaire supérieur."
+      },
+      {
+        "name": "media-module-crest",
+        "value": "inset 0 1px 0 rgba(255, 255, 255, 0.06)",
+        "purpose": "Micro-relief supérieur du module Media Flyout."
+      },
+      {
+        "name": "slider-thumb",
+        "value": "0 2px 6px rgba(0, 0, 0, 0.45)",
+        "purpose": "Détachement tactile de l'anneau des variateurs continus."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-fluent-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Déploiement ancré en bas à droite du Flyout (180ms) et agrandissement tactile des curseurs (140ms)."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "390px"
+      },
+      {
+        "name": "desktop",
+        "value": "1440px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Action Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Bouton principal Fluent bleu ciel à encre sombre haute lisibilité.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\" stroke=\"none\"><rect x=\"6\" y=\"4\" width=\"4\" height=\"16\" rx=\"1\"/><rect x=\"14\" y=\"4\" width=\"4\" height=\"16\" rx=\"1\"/></svg>Pause</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: #60a5fa; color: #09111e; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 12px; font-weight: 600; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; transition: background-color 150ms ease, transform 150ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background: #7bb6fc; } .ds-btn-primary:active { transform: scale(0.96); } .ds-btn-primary:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }"
+    },
+    {
+      "name": "Scene Quick Tile",
+      "kind": "button",
+      "refersTo": "tile-scene",
+      "description": "Tuile Quick Settings 1-clic pour déclencher une scène ou un script.",
+      "html": "<button class=\"ds-tile-scene\" type=\"button\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#60a5fa\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z\"/></svg><span>Cinéma</span></button>",
+      "css": ".ds-tile-scene { display: flex; align-items: center; gap: 8px; width: 160px; height: 36px; padding: 0 12px; background: #282d37; color: #f3f5f8; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 12px; font-weight: 500; border-radius: 8px; border: none; cursor: pointer; transition: background-color 150ms ease, color 150ms ease; } .ds-tile-scene:hover { background: #313744; } .ds-tile-scene:active { background: #60a5fa; color: #09111e; } .ds-tile-scene:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }"
+    },
+    {
+      "name": "Chromatic Light Strip",
+      "kind": "custom",
+      "description": "Bande de contrôle de lumière avec bascule teintée, puce Kelvin et variateur.",
+      "html": "<div class=\"ds-light-strip\"><button class=\"ds-light-toggle\" type=\"button\" aria-label=\"Salon\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5\"/><path d=\"M9 18h6\"/><path d=\"M10 22h4\"/></svg></button><div class=\"ds-light-body\"><div class=\"ds-light-head\"><span>Salon</span><span class=\"ds-kelvin-chip\"><i class=\"ds-dot\"></i>3100K</span><span class=\"ds-pct\">76%</span></div><div class=\"ds-track\"><div class=\"ds-fill\"></div><div class=\"ds-thumb\"></div></div></div></div>",
+      "css": ".ds-light-strip { display: flex; align-items: center; gap: 10px; width: 320px; padding: 6px 10px; background: #282d37; border-radius: 8px; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; color: #f3f5f8; transition: background-color 150ms ease; } .ds-light-strip:hover { background: #313744; } .ds-light-toggle { width: 32px; height: 32px; border-radius: 8px; border: none; background: #ffca7a; color: #09111e; display: flex; align-items: center; justify-content: center; cursor: pointer; } .ds-light-body { flex: 1; min-width: 0; } .ds-light-head { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; margin-bottom: 6px; } .ds-light-head > span:first-child { flex: 1; } .ds-kelvin-chip { display: inline-flex; align-items: center; gap: 4px; background: #1e222b; color: #b4bcc9; font-size: 10px; padding: 2px 6px; border-radius: 9999px; font-variant-numeric: tabular-nums; } .ds-dot { width: 8px; height: 8px; border-radius: 9999px; background: #ffca7a; display: inline-block; } .ds-pct { font-size: 11px; color: #b4bcc9; font-variant-numeric: tabular-nums; } .ds-track { position: relative; height: 4px; background: #3b4252; border-radius: 9999px; } .ds-fill { width: 76%; height: 100%; background: #ffca7a; border-radius: 9999px; } .ds-thumb { position: absolute; top: -6px; left: calc(76% - 8px); width: 16px; height: 16px; border-radius: 9999px; background: #1c1e24; border: 4px solid #ffca7a; }"
+    },
+    {
+      "name": "Fluent Select Pill",
+      "kind": "input",
+      "description": "Liste déroulante personnalisée à chevron SVG 1.75px.",
+      "html": "<div class=\"ds-select-wrap\"><select class=\"ds-select\"><option>Salon</option><option>Bureau</option></select><svg class=\"ds-select-icon\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m6 9 6 6 6-6\"/></svg></div>",
+      "css": ".ds-select-wrap { position: relative; display: inline-flex; align-items: center; } .ds-select { appearance: none; background: #282d37; color: #f3f5f8; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 12px; font-weight: 500; padding: 5px 28px 5px 10px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); cursor: pointer; transition: background-color 150ms ease; } .ds-select:hover { background: #313744; } .ds-select:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; } .ds-select-icon { pointer-events: none; position: absolute; right: 8px; color: #b4bcc9; }"
+    },
+    {
+      "name": "Server Credential Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Champ de saisie sombre pour URL Home Assistant ou jeton.",
+      "html": "<input class=\"ds-input\" type=\"url\" placeholder=\"http://homeassistant.local:8123\" />",
+      "css": ".ds-input { width: 260px; background: #282d37; color: #f3f5f8; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 12px; padding: 8px 12px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.08); caret-color: #60a5fa; } .ds-input::placeholder { color: #949eae; } .ds-input:focus { outline: none; border-color: #60a5fa; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "L'Extension Système Invisible",
+    "overview": "MyHomeAssistant est conçu pour se fondre dans la barre système de Windows 11 avec la retenue, la densité tactile et la réactivité immédiate des Quick Settings et du Media Flyout natifs. Plutôt que de reproduire un tableau de bord web domotique bavard ou un mur de cartes imbriquées, le système traite chaque entité Home Assistant comme un réglage matériel du poste de travail : une mini-pilule oblongue en lévitation discrète au-dessus de l'horloge qui s'ouvre en 180 ms en un châssis Acrylic anthracite structuré.\n\nToute l'interface obéit à une discipline radicale de brièveté : aucun paragraphe explicatif, aucun sous-titre redondant, aucun libellé d'en-tête superflu (eyebrow). La compréhension passe en moins d'une seconde par la teinte physique réelle d'une lampe allumée, la pochette de l'album en cours, une icône au trait constant (1.75px) et un mot-clé de un à trois mots accompagné d'une mesure tabulaire.",
+    "keyCharacteristics": [
+      "Réfraction Mica/Acrylic sombre (blur(28px) saturate(165%)) bordée d'un filet spéculaire périphérique de 1px et d'un éclat interne supérieur.",
+      "Langage chromatique fonctionnel où le bleu Fluent indique l'action système/audio tandis que l'ambre et le spectre RVB traduisent exclusivement l'état réel des luminaires allumés.",
+      "Pistes de contrôle affleurantes et tuiles d'action compactes (36px) sans jamais imbriquer de cartes dans des cartes.",
+      "Zéro surcharge textuelle : étiquettes limitées à 1–3 mots, valeurs numériques en chasse fixe (tabular-nums) et contrôles natifs (select, range, switch) intégralement redessinés."
+    ],
+    "rules": [
+      {
+        "name": "The Active-Only Chromatic Rule",
+        "body": "Les couleurs vives (fluent-sky, warm-kelvin, teintes RVB) n'apparaissent jamais sur un équipement éteint : une lampe à 0% replie son curseur et son bouton en ardoise neutre (inactive-slate).",
+        "section": "colors"
+      },
+      {
+        "name": "The Dark-Ink-On-Fill Rule",
+        "body": "Tout contrôle plein coloré (fluent-sky ou teinte de lampe active) bascule son icône et son texte en accent-ink sombre au lieu de blanc pur pour préserver une netteté irréprochable.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three-Word Ceiling Rule",
+        "body": "Les libellés d'interface, boutons et tuiles se limitent à un maximum de un à trois mots ; aucun paragraphe d'aide ni sous-titre explicatif n'est toléré dans les écrans opérationnels.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Measurement Rule",
+        "body": "Toute valeur susceptible de varier en direct (volume, intensité, Kelvin, compteurs, horloge) active font-variant-numeric: tabular-nums pour interdire tout tremblement horizontal lors du glissement d'un curseur.",
+        "section": "typography"
+      },
+      {
+        "name": "The Specular Crest Rule",
+        "body": "Toute fenêtre flottante combine une bordure externe translucide (1px) et un reflet interne supérieur (inset 0 1px 0), sans jamais utiliser de halo coloré diffus à décalage nul.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do limiter chaque intitulé, bouton et tuile à 1–3 mots accompagnés d'une icône SVG au trait 1.75px.",
+      "Do ancrer l'animation d'ouverture du Flyout sur transform-origin: bottom right avec la courbe cubic-bezier(0.16, 1, 0.3, 1) en 180ms depuis une opacité déjà pleine.",
+      "Do teinter dynamiquement chaque variateur de lumière allumée avec sa couleur Kelvin ou RVB réelle tout en maintenant les lampes éteintes en gris-ardoise neutre (#525b6c).",
+      "Do habiller tous les éléments natifs du navigateur (<select>, <input type=\"range\">, barres de défilement, sélection de texte) aux couleurs du système."
+    ],
+    "donts": [
+      "Don't ajouter de sur-titres en petites capitales (kickers / eyebrows), de paragraphes d'introduction ou de sous-titres descriptifs sous les en-têtes.",
+      "Don't imbriquer des cartes dans d'autres cartes à l'intérieur des sections du Flyout.",
+      "Don't animer les propriétés de mise en page (width, height, border-width, padding) ni appliquer d'effet d'échelle au survol des images de pochettes (<img>).",
+      "Don't intégrer d'URL privée, de jeton Home Assistant ou d'identifiant d'entité personnel en dur dans les composants."
+    ]
+  }
+}

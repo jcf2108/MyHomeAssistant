@@ -1,0 +1,16 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/schemas/
+.env
+.env.*
+*.local
+*.key
+*.pem
+updater-private-key*
+.impeccable/config.local.json
+.impeccable/questions/
+.impeccable/review/
+.impeccable/mocks/
+.DS_Store
+Thumbs.db
