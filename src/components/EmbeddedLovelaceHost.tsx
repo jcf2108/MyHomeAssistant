@@ -31,10 +31,10 @@ export const EmbeddedLovelaceHost: React.FC<EmbeddedLovelaceHostProps> = ({
     }
 
     const rect = el.getBoundingClientRect();
-    // Préserve le filet périphérique spéculaire 1px de la surface Flyout
-    const x = Math.max(1, Math.round(rect.left));
+    // Préserve 5px sur les bords gauche/droit pour les poignées de redimensionnement natives du Flyout
+    const x = Math.max(5, Math.round(rect.left) + 4);
     const y = Math.max(1, Math.round(rect.top));
-    const width = Math.max(0, Math.round(rect.width) - 2);
+    const width = Math.max(0, Math.round(rect.width) - 8);
     const height = Math.max(0, Math.round(rect.height));
 
     void syncLovelaceWebviewNative({

@@ -3,7 +3,6 @@ import {
   AppWindow,
   ArrowLeft,
   ChevronDown,
-  GripHorizontal,
   LayoutGrid,
   Link2,
   PanelTop,
@@ -15,6 +14,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import { EmbeddedLovelaceHost } from './components/EmbeddedLovelaceHost';
+import { FlyoutResizeHandles } from './components/FlyoutResizeHandles';
 import type { HaTileActions } from './components/HaTileCard';
 import { LovelaceDashboardView } from './components/LovelaceDashboardView';
 import { MiniPill } from './components/MiniPill';
@@ -27,6 +27,7 @@ import {
   resolveHaMediaUrl,
 } from './services/haWebsocket';
 import {
+  type FlyoutResizeDirection,
   checkAndOptionallyInstallUpdate,
   clearLovelaceSessionNative,
   deleteSecureToken,
@@ -34,7 +35,6 @@ import {
   getAutostartEnabled,
   getSecureToken,
   isTauriRuntime,
-  recordPillDraggedPositionNative,
   reloadLovelaceWebviewNative,
   resetPillAboveClockNative,
   saveSecureToken,
@@ -42,6 +42,7 @@ import {
   setPcGraceSecondsNative,
   setWidgetExpandedNative,
   setWindowFocusableNative,
+  startNativeResizeDrag,
   startNativeWindowDrag,
   subscribeNativeEvents,
 } from './services/tauriBridge';
@@ -56,6 +57,7 @@ import type {
   VolumeFeedbackBadge,
 } from './types/ha';
 import { shortEntityLabel } from './utils/color';
+import { type DragStartCoords, handleSmartSurfacePointerDown } from './utils/dragGesture';
 import { isDomainToggleable } from './utils/haIcons';
 import {
   buildAutoAreasOverview,
@@ -171,6 +173,10 @@ export const App: React.FC = () => {
   });
 
   const [browserOffset, setBrowserOffset] = useState<{ x: number; y: number } | null>(null);
+  const [browserSize, setBrowserSize] = useState<{ width: number; height: number }>({
+    width: 420,
+    height: 680,
+  });
   const dragStartRef = useRef<{
     pointerX: number;
     pointerY: number;
@@ -1131,6 +1137,7 @@ export const App: React.FC = () => {
       setShowSettings(true);
     } else if (action === 'reset_position') {
       setBrowserOffset(null);
+      setBrowserSize({ width: 420, height: 680 });
       void resetPillAboveClockNative();
     }
   };
@@ -1194,51 +1201,104 @@ export const App: React.FC = () => {
 
   const handleResetPosition = () => {
     setBrowserOffset(null);
+    setBrowserSize({ width: 420, height: 680 });
     void resetPillAboveClockNative();
   };
 
-  const handleDragPointerDown = (e: React.PointerEvent<HTMLElement>) => {
-    if (e.button !== 0) return;
-    if (nativeTauri) {
-      void startNativeWindowDrag().then(() => {
-        window.setTimeout(() => {
-          void recordPillDraggedPositionNative();
-        }, 250);
-      });
-      return;
-    }
+  const handleStartDrag = useCallback(
+    (coords: DragStartCoords) => {
+      if (nativeTauri) {
+        void startNativeWindowDrag();
+        return;
+      }
 
-    e.preventDefault();
-    const startRight = browserOffset?.x ?? 20;
-    const startBottom = browserOffset?.y ?? 20;
-    dragStartRef.current = {
-      pointerX: e.clientX,
-      pointerY: e.clientY,
-      startRight,
-      startBottom,
-    };
+      const startRight = browserOffset?.x ?? 16;
+      const startBottom = browserOffset?.y ?? 52;
+      dragStartRef.current = {
+        pointerX: coords.clientX,
+        pointerY: coords.clientY,
+        startRight,
+        startBottom,
+      };
 
-    const onMove = (ev: PointerEvent) => {
-      if (!dragStartRef.current) return;
-      const dx = ev.clientX - dragStartRef.current.pointerX;
-      const dy = ev.clientY - dragStartRef.current.pointerY;
-      const maxRight = Math.max(12, window.innerWidth - 332);
-      const maxBottom = Math.max(12, window.innerHeight - 80);
-      setBrowserOffset({
-        x: Math.max(12, Math.min(maxRight, dragStartRef.current.startRight - dx)),
-        y: Math.max(12, Math.min(maxBottom, dragStartRef.current.startBottom - dy)),
-      });
-    };
+      const activeW = expanded ? browserSize.width : 316;
+      const activeH = expanded ? browserSize.height : 52;
 
-    const onUp = () => {
-      dragStartRef.current = null;
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
+      const onMove = (ev: PointerEvent) => {
+        if (!dragStartRef.current) return;
+        const dx = ev.clientX - dragStartRef.current.pointerX;
+        const dy = ev.clientY - dragStartRef.current.pointerY;
+        const maxRight = Math.max(12, window.innerWidth - activeW - 12);
+        const maxBottom = Math.max(12, window.innerHeight - activeH - 12);
+        setBrowserOffset({
+          x: Math.max(12, Math.min(maxRight, dragStartRef.current.startRight - dx)),
+          y: Math.max(12, Math.min(maxBottom, dragStartRef.current.startBottom - dy)),
+        });
+      };
 
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-  };
+      const onUp = () => {
+        dragStartRef.current = null;
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [browserOffset, browserSize.height, browserSize.width, expanded, nativeTauri],
+  );
+
+  const handleResizePointerDown = useCallback(
+    (direction: FlyoutResizeDirection, e: React.PointerEvent<HTMLDivElement>) => {
+      if (nativeTauri) {
+        void startNativeResizeDrag(direction);
+        return;
+      }
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startW = browserSize.width;
+      const startH = browserSize.height;
+      const startRight = browserOffset?.x ?? 16;
+      const startBottom = browserOffset?.y ?? 52;
+
+      const onMove = (ev: PointerEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+
+        let nextW = startW;
+        let nextH = startH;
+        let nextRight = startRight;
+        let nextBottom = startBottom;
+
+        if (direction.includes('West')) {
+          nextW = Math.max(320, Math.min(window.innerWidth - 24, startW - dx));
+        } else if (direction.includes('East')) {
+          nextW = Math.max(320, Math.min(window.innerWidth - 24, startW + dx));
+          nextRight = Math.max(8, startRight - (nextW - startW));
+        }
+
+        if (direction.includes('North')) {
+          nextH = Math.max(360, Math.min(window.innerHeight - 64, startH - dy));
+        } else if (direction.includes('South')) {
+          nextH = Math.max(360, Math.min(window.innerHeight - 64, startH + dy));
+          nextBottom = Math.max(8, startBottom - (nextH - startH));
+        }
+
+        setBrowserSize({ width: Math.round(nextW), height: Math.round(nextH) });
+        setBrowserOffset({ x: Math.round(nextRight), y: Math.round(nextBottom) });
+      };
+
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [browserOffset, browserSize.height, browserSize.width, nativeTauri],
+  );
 
   const widgetContent = !expanded ? (
     <MiniPill
@@ -1255,39 +1315,40 @@ export const App: React.FC = () => {
       onNextTrack={() => triggerNext(resolvedPlaybackTarget)}
       onWheelVolume={(dir) => stepVolumeOnEntity(resolvedVolumeTarget, dir, true)}
       onTriggerFavorite={handlePrimaryTileToggle}
-      onDragPointerDown={handleDragPointerDown}
+      onStartDrag={handleStartDrag}
     />
   ) : (
     <div
-      className={`flyout-surface animate-flyout flex flex-col overflow-hidden rounded-flyout text-fluent-ink ${
+      style={
+        nativeTauri
+          ? undefined
+          : {
+              width: `${browserSize.width}px`,
+              height: `${browserSize.height}px`,
+            }
+      }
+      className={`flyout-surface animate-flyout relative flex flex-col overflow-hidden rounded-flyout text-fluent-ink ${
         nativeTauri
           ? 'h-full w-full'
-          : 'max-h-[min(680px,calc(100vh-108px))] w-[420px] max-w-[calc(100vw-24px)]'
+          : 'max-h-[calc(100vh-68px)] max-w-[calc(100vw-24px)]'
       }`}
       role="dialog"
       aria-label="Panneau MyHomeAssistant"
     >
-      {/* Barre supérieure : Poignée + Titre + Badge Volume/État + Actions rapides */}
-      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3">
+      {/* Bandeau supérieur entièrement déplaçable (glisser n'importe où dans l'en-tête) */}
+      <header
+        onPointerDownCapture={(e) => handleSmartSurfacePointerDown(e, handleStartDrag)}
+        className="flex h-10 shrink-0 cursor-grab select-none items-center justify-between gap-2 border-b border-white/[0.06] px-3.5 active:cursor-grabbing"
+      >
         <div className="flex min-w-0 items-center gap-2">
-          {showSettings ? (
+          {showSettings && (
             <button
               type="button"
               onClick={() => setShowSettings(false)}
               aria-label="Retour à l'Aperçu"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
+              className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          ) : (
-            <button
-              type="button"
-              onPointerDown={handleDragPointerDown}
-              aria-label="Déplacer le panneau"
-              title="Glisser pour déplacer"
-              className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-control text-fluent-muted transition-colors hover:bg-fluent-elevated hover:text-fluent-ink active:cursor-grabbing"
-            >
-              <GripHorizontal className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
 
@@ -1486,7 +1547,7 @@ export const App: React.FC = () => {
       )}
 
       {/* Pied de Flyout style Windows 11 Quick Settings */}
-      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-white/[0.06] bg-fluent-base/80 px-3">
+      <footer className="flex h-9 shrink-0 items-center justify-between border-t border-white/[0.06] bg-fluent-base/80 pl-3.5 pr-4">
         <div className="flex items-center gap-2">
           {usingPreview && !showSettings ? (
             <button
@@ -1529,6 +1590,9 @@ export const App: React.FC = () => {
           <Settings className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </footer>
+
+      {/* Poignées de redimensionnement 8 directions sur les bords et coins du Flyout */}
+      <FlyoutResizeHandles onResizePointerDown={handleResizePointerDown} />
     </div>
   );
 

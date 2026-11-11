@@ -25,6 +25,25 @@ pub fn run() {
 
             if let Some(main_win) = app.get_window("main") {
                 window_ctl::apply_initial_window_placement(&handle, &main_win);
+                let win_for_events = main_win.clone();
+                let app_for_events = handle.clone();
+                main_win.on_window_event(move |event| match event {
+                    tauri::WindowEvent::Moved(pos) => {
+                        window_ctl::handle_native_window_moved(
+                            &app_for_events,
+                            &win_for_events,
+                            *pos,
+                        );
+                    }
+                    tauri::WindowEvent::Resized(size) => {
+                        window_ctl::handle_native_window_resized(
+                            &app_for_events,
+                            &win_for_events,
+                            *size,
+                        );
+                    }
+                    _ => {}
+                });
             }
 
             // Menu icône System Tray Windows (à côté de l'horloge)

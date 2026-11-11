@@ -2,7 +2,6 @@ import React, { useRef, useState } from 'react';
 import {
   ChevronUp,
   Disc3,
-  GripVertical,
   Pause,
   Play,
   SkipForward,
@@ -12,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { HaConnectionStatus, HaEntity, VolumeFeedbackBadge } from '../types/ha';
 import { shortEntityLabel } from '../utils/color';
+import { type DragStartCoords, handleSmartSurfacePointerDown } from '../utils/dragGesture';
 import { getHaTileAccentColor, renderHaEntityIcon } from '../utils/haIcons';
 import { supportsVolumeSet } from '../utils/mediaRouting';
 
@@ -29,7 +29,7 @@ interface MiniPillProps {
   onNextTrack: () => void;
   onWheelVolume: (direction: 'up' | 'down') => void;
   onTriggerFavorite: (entity: HaEntity) => void;
-  onDragPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  onStartDrag: (coords: DragStartCoords) => void;
 }
 
 export const MiniPill: React.FC<MiniPillProps> = ({
@@ -46,7 +46,7 @@ export const MiniPill: React.FC<MiniPillProps> = ({
   onNextTrack,
   onWheelVolume,
   onTriggerFavorite,
-  onDragPointerDown,
+  onStartDrag,
 }) => {
   const [forceFavorites, setForceFavorites] = useState(false);
   const lastWheelAtRef = useRef<number>(0);
@@ -89,22 +89,12 @@ export const MiniPill: React.FC<MiniPillProps> = ({
 
   return (
     <div
+      onPointerDownCapture={(e) => handleSmartSurfacePointerDown(e, onStartDrag)}
       onWheel={handleWheel}
-      className="group flyout-surface relative flex h-[52px] w-[316px] max-w-full items-center gap-1.5 overflow-hidden rounded-pill px-2 text-fluent-ink"
+      className="group flyout-surface relative flex h-[52px] w-[316px] max-w-full cursor-grab select-none items-center gap-1.5 overflow-hidden rounded-pill px-3 text-fluent-ink active:cursor-grabbing"
       role="region"
       aria-label="Mini-pilule Home Assistant"
     >
-      {/* Poignée de déplacement libre */}
-      <button
-        type="button"
-        onPointerDown={onDragPointerDown}
-        aria-label="Déplacer la pilule"
-        title="Glisser pour déplacer"
-        className="flex h-8 w-5 shrink-0 cursor-grab items-center justify-center rounded-pill text-fluent-muted transition-colors duration-150 hover:bg-fluent-elevated hover:text-fluent-ink active:cursor-grabbing"
-      >
-        <GripVertical className="h-4 w-4" strokeWidth={1.75} />
-      </button>
-
       {volumeFeedback ? (
         /* Retour visuel direct lors d'un réglage de volume (affiche la vraie valeur remontée par HA) */
         <button
@@ -126,7 +116,12 @@ export const MiniPill: React.FC<MiniPillProps> = ({
           <div className="relative h-9 w-9 shrink-0">
             <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-white/10 bg-fluent-elevated">
               {coverUrl ? (
-                <img src={coverUrl} alt="" className="h-full w-full object-cover" />
+                <img
+                  src={coverUrl}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <Disc3 className="h-4 w-4 text-fluent-accent" strokeWidth={1.75} />
               )}

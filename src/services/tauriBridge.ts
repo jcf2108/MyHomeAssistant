@@ -58,10 +58,26 @@ export async function setPcGraceSecondsNative(seconds: number): Promise<void> {
   await invoke('set_pc_grace_seconds', { seconds });
 }
 
+export type FlyoutResizeDirection =
+  | 'East'
+  | 'North'
+  | 'NorthEast'
+  | 'NorthWest'
+  | 'South'
+  | 'SouthEast'
+  | 'SouthWest'
+  | 'West';
+
 export async function startNativeWindowDrag(): Promise<void> {
   if (!isTauriRuntime()) return;
   const { getCurrentWindow } = await import('@tauri-apps/api/window');
   await getCurrentWindow().startDragging();
+}
+
+export async function startNativeResizeDrag(direction: FlyoutResizeDirection): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const { getCurrentWindow } = await import('@tauri-apps/api/window');
+  await getCurrentWindow().startResizeDragging(direction);
 }
 
 export async function recordPillDraggedPositionNative(): Promise<void> {

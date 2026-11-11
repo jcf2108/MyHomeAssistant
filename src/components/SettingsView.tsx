@@ -485,14 +485,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div className="flex items-center justify-between border-t border-white/[0.06] pt-2">
-              <span className="text-xs font-medium text-fluent-ink">Position pilule</span>
+              <span className="text-xs font-medium text-fluent-ink">Position & taille</span>
               <button
                 type="button"
                 onClick={onResetPosition}
                 className="inline-flex items-center gap-1.5 rounded-control bg-fluent-elevated px-2.5 py-1.5 text-xs font-medium text-fluent-ink transition-colors hover:bg-fluent-hover"
               >
                 <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Au-dessus horloge
+                Réinitialiser
               </button>
             </div>
 
