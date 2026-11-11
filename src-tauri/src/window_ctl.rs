@@ -163,11 +163,65 @@ pub fn apply_initial_window_placement(app: &AppHandle, win: &WebviewWindow) {
 }
 
 #[cfg(windows)]
+pub fn suppress_dwm_frame_artifacts(win: &WebviewWindow) {
+    use std::ffi::c_void;
+    use std::mem::size_of;
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMNCRP_DISABLED, DWMSBT_NONE, DWMWA_BORDER_COLOR, DWMWA_COLOR_NONE,
+        DWMWA_NCRENDERING_POLICY, DWMWA_SYSTEMBACKDROP_TYPE, DWMWA_WINDOW_CORNER_PREFERENCE,
+        DWMWCP_DONOTROUND,
+    };
+
+    if let Ok(raw_hwnd) = win.hwnd() {
+        let hwnd = HWND(raw_hwnd.0);
+        unsafe {
+            // Supprime l'ombre et la bordure rectangulaire DWM Windows 11 autour du HWND transparent
+            // (tao conserve WS_CAPTION même avec shadow:false, ce qui active l'ombre 8px de Windows 11).
+            let ncrp = DWMNCRP_DISABLED;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_NCRENDERING_POLICY,
+                &ncrp as *const _ as *const c_void,
+                size_of::<i32>() as u32,
+            );
+            let corner_pref = DWMWCP_DONOTROUND;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_WINDOW_CORNER_PREFERENCE,
+                &corner_pref as *const _ as *const c_void,
+                size_of::<i32>() as u32,
+            );
+            let border_none: u32 = DWMWA_COLOR_NONE;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_BORDER_COLOR,
+                &border_none as *const _ as *const c_void,
+                size_of::<u32>() as u32,
+            );
+            let backdrop_none = DWMSBT_NONE;
+            let _ = DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_SYSTEMBACKDROP_TYPE,
+                &backdrop_none as *const _ as *const c_void,
+                size_of::<i32>() as u32,
+            );
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn suppress_dwm_frame_artifacts(_win: &WebviewWindow) {}
+
+#[cfg(windows)]
 pub fn apply_win32_toolwindow_styles(win: &WebviewWindow, focusable: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED,
+        SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     };
+
+    suppress_dwm_frame_artifacts(win);
 
     if let Ok(raw_hwnd) = win.hwnd() {
         let hwnd = HWND(raw_hwnd.0);
@@ -179,7 +233,18 @@ pub fn apply_win32_toolwindow_styles(win: &WebviewWindow, focusable: bool) {
             } else {
                 next |= WS_EX_NOACTIVATE.0 as isize;
             }
-            let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+            if next != current {
+                let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, next);
+                let _ = SetWindowPos(
+                    hwnd,
+                    None,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                );
+            }
         }
     }
 }
@@ -328,5 +393,6 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
         clamped_x, clamped_y,
     )));
     let _ = win.show();
+    suppress_dwm_frame_artifacts(&win);
     Ok(())
 }

@@ -77,6 +77,28 @@ textarea {
     0 4px 12px rgba(0, 0, 0, 0.34);
 }
 
+/* Fenêtre transparente native Tauri Windows : aucun débordement d'ombre dans les 4 coins du HWND */
+.is-tauri,
+.is-tauri body,
+.is-tauri #root {
+  overflow: hidden;
+  background: transparent;
+}
+
+.is-tauri .flyout-surface {
+  background: var(--bg-flyout);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--bg-stage);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.is-tauri .animate-flyout {
+  animation: none;
+}
+
 /* Custom sleek Fluent scrollbar */
 .fluent-scroll {
   scrollbar-width: thin;
