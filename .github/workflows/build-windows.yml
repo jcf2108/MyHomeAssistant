@@ -58,7 +58,8 @@ jobs:
               if (t.startsWith("untrusted comment:")) {
                 return Buffer.from(t.replace(/\r\n/g, "\n") + "\n", "utf8").toString("base64");
               }
-              return t.replace(/\s+/g, "");
+              const stripped = t.replace(/\s+/g, "").replace(/=+$/, "");
+              return stripped + "=".repeat((4 - (stripped.length % 4)) % 4);
             }
 
             const cleanKey = normalizeKey(process.env.RAW_SIGNING_KEY || "");
@@ -128,7 +129,8 @@ jobs:
               if (raw.startsWith("untrusted comment:")) {
                 process.stdout.write(Buffer.from(raw.replace(/\r\n/g, "\n") + "\n", "utf8").toString("base64"));
               } else {
-                process.stdout.write(raw.replace(/\s+/g, ""));
+                const s = raw.replace(/\s+/g, "").replace(/=+$/, "");
+                process.stdout.write(s + "=".repeat((4 - (s.length % 4)) % 4));
               }
             ')"
             echo "::add-mask::$CLEAN_KEY"
