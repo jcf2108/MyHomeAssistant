@@ -1,7 +1,7 @@
-import type { HaEntity } from '../types/ha';
+import type { HaEntity, LovelaceConfig } from '../types/ha';
 
 const COVER_MIDNIGHT_CITY =
-  "data:image/svg+xml;utf8," +
+  'data:image/svg+xml;utf8,' +
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
       <defs>
@@ -22,56 +22,46 @@ const COVER_MIDNIGHT_CITY =
     </svg>`,
   );
 
-const COVER_VERIDIS_QUO =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">
-      <rect width="96" height="96" fill="#14161D"/>
-      <circle cx="48" cy="48" r="34" fill="#1F2430" stroke="#60A5FA" stroke-width="3"/>
-      <circle cx="48" cy="48" r="22" fill="none" stroke="#FBBF24" stroke-width="2" stroke-opacity="0.75"/>
-      <circle cx="48" cy="48" r="9" fill="#60A5FA"/>
-      <circle cx="48" cy="48" r="3" fill="#0E1015"/>
-    </svg>`,
-  );
-
 /**
  * Données synthétiques d'aperçu hors connexion (aucune instance réelle ni jeton).
- * Utilisées uniquement lorsque l'utilisateur active le mode Aperçu avant de lier son serveur.
  */
 export const PREVIEW_ENTITIES: Record<string, HaEntity> = {
-  'media_player.salon_sonos': {
-    entity_id: 'media_player.salon_sonos',
+  'media_player.ampli_salon': {
+    entity_id: 'media_player.ampli_salon',
     state: 'playing',
     attributes: {
-      friendly_name: 'Salon',
+      friendly_name: 'Ampli Salon',
+      device_class: 'receiver',
+      icon: 'mdi:audio-video',
       media_title: 'Midnight City',
       media_artist: 'M83',
       entity_picture: COVER_MIDNIGHT_CITY,
       volume_level: 0.42,
       is_volume_muted: false,
-      source: 'Music Assistant',
-      source_list: ['Music Assistant', 'Spotify', 'TV Optique'],
+      source: 'TV eARC',
+      source_list: ['TV eARC', 'Spotify', 'Vinyle'],
+      supported_features: 19469,
     },
   },
-  'media_player.bureau_enceinte': {
-    entity_id: 'media_player.bureau_enceinte',
-    state: 'paused',
+  'media_player.tele_salon': {
+    entity_id: 'media_player.tele_salon',
+    state: 'on',
     attributes: {
-      friendly_name: 'Bureau',
-      media_title: 'Veridis Quo',
-      media_artist: 'Daft Punk',
-      entity_picture: COVER_VERIDIS_QUO,
-      volume_level: 0.28,
+      friendly_name: 'Télé Salon',
+      device_class: 'tv',
+      icon: 'mdi:television',
+      source: 'HDMI 1',
+      source_list: ['HDMI 1', 'Netflix', 'YouTube'],
       is_volume_muted: false,
-      source: 'Spotify',
-      source_list: ['Spotify', 'Radio'],
+      supported_features: 3468,
     },
   },
   'light.suspension_salon': {
     entity_id: 'light.suspension_salon',
     state: 'on',
     attributes: {
-      friendly_name: 'Salon',
+      friendly_name: 'Suspension',
+      icon: 'mdi:ceiling-light',
       brightness: 194,
       color_temp_kelvin: 3100,
       min_color_temp_kelvin: 2200,
@@ -86,6 +76,7 @@ export const PREVIEW_ENTITIES: Record<string, HaEntity> = {
     state: 'on',
     attributes: {
       friendly_name: 'Bureau',
+      icon: 'mdi:desk-lamp',
       brightness: 230,
       color_temp_kelvin: 4600,
       min_color_temp_kelvin: 2200,
@@ -99,27 +90,46 @@ export const PREVIEW_ENTITIES: Record<string, HaEntity> = {
     entity_id: 'light.bandeau_tv',
     state: 'off',
     attributes: {
-      friendly_name: 'TV',
+      friendly_name: 'Bandeau TV',
+      icon: 'mdi:led-strip-variant',
       brightness: 140,
       color_temp_kelvin: 2700,
       min_color_temp_kelvin: 2200,
       max_color_temp_kelvin: 6500,
       supported_color_modes: ['rgb'],
       color_mode: 'rgb',
-      rgb_color: [168, 85, 247],
+      rgb_color: [96, 165, 250],
     },
   },
-  'light.cuisine_plan': {
-    entity_id: 'light.cuisine_plan',
+  'switch.machine_cafe': {
+    entity_id: 'switch.machine_cafe',
     state: 'off',
     attributes: {
-      friendly_name: 'Cuisine',
-      brightness: 204,
-      color_temp_kelvin: 4000,
-      min_color_temp_kelvin: 2200,
-      max_color_temp_kelvin: 6500,
-      supported_color_modes: ['color_temp'],
-      color_mode: 'color_temp',
+      friendly_name: 'Prise TV',
+      device_class: 'outlet',
+      icon: 'mdi:power-plug',
+    },
+  },
+  'cover.volet_salon': {
+    entity_id: 'cover.volet_salon',
+    state: 'open',
+    attributes: {
+      friendly_name: 'Volet Salon',
+      icon: 'mdi:window-shutter',
+      current_position: 75,
+    },
+  },
+  'climate.thermostat_salon': {
+    entity_id: 'climate.thermostat_salon',
+    state: 'heat',
+    attributes: {
+      friendly_name: 'Chauffage',
+      current_temperature: 20.5,
+      temperature: 21,
+      min_temp: 16,
+      max_temp: 25,
+      target_temp_step: 0.5,
+      hvac_modes: ['off', 'heat', 'auto'],
     },
   },
   'scene.ambiance_cinema': {
@@ -127,20 +137,7 @@ export const PREVIEW_ENTITIES: Record<string, HaEntity> = {
     state: 'scène',
     attributes: {
       friendly_name: 'Cinéma',
-    },
-  },
-  'scene.concentration': {
-    entity_id: 'scene.concentration',
-    state: 'scène',
-    attributes: {
-      friendly_name: 'Focus',
-    },
-  },
-  'scene.soiree_tamisee': {
-    entity_id: 'scene.soiree_tamisee',
-    state: 'scène',
-    attributes: {
-      friendly_name: 'Soirée',
+      icon: 'mdi:movie-open',
     },
   },
   'script.extinction_totale': {
@@ -148,6 +145,46 @@ export const PREVIEW_ENTITIES: Record<string, HaEntity> = {
     state: 'off',
     attributes: {
       friendly_name: 'Nuit',
+      icon: 'mdi:weather-night',
     },
   },
+};
+
+export const PREVIEW_LOVELACE_CONFIG: LovelaceConfig = {
+  title: 'Aperçu',
+  views: [
+    {
+      title: 'Aperçu',
+      path: 'default_view',
+      type: 'sections',
+      sections: [
+        {
+          type: 'grid',
+          cards: [
+            { type: 'heading', heading: 'Salon' },
+            {
+              type: 'tile',
+              entity: 'light.suspension_salon',
+              features: [{ type: 'light-brightness' }],
+            },
+            { type: 'tile', entity: 'light.lampe_bureau' },
+            { type: 'tile', entity: 'light.bandeau_tv' },
+            { type: 'tile', entity: 'switch.machine_cafe' },
+            { type: 'tile', entity: 'cover.volet_salon' },
+            { type: 'tile', entity: 'climate.thermostat_salon' },
+          ],
+        },
+        {
+          type: 'grid',
+          cards: [
+            { type: 'heading', heading: 'Scènes & Multimédia' },
+            { type: 'tile', entity: 'scene.ambiance_cinema' },
+            { type: 'tile', entity: 'script.extinction_totale' },
+            { type: 'tile', entity: 'media_player.ampli_salon' },
+            { type: 'tile', entity: 'media_player.tele_salon' },
+          ],
+        },
+      ],
+    },
+  ],
 };

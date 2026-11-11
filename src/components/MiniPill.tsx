@@ -3,7 +3,6 @@ import {
   ChevronUp,
   Disc3,
   GripVertical,
-  Lightbulb,
   Pause,
   Play,
   SkipForward,
@@ -11,20 +10,22 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { HaConnectionStatus, HaEntity } from '../types/ha';
-import { getLightVisualColor, shortEntityLabel } from '../utils/color';
+import type { HaConnectionStatus, HaEntity, VolumeFeedbackBadge } from '../types/ha';
+import { shortEntityLabel } from '../utils/color';
+import { getHaTileAccentColor, renderHaEntityIcon } from '../utils/haIcons';
 
 interface MiniPillProps {
   status: HaConnectionStatus;
   previewMode: boolean;
-  mediaPlayer: HaEntity | null;
+  playbackPlayer: HaEntity | null;
+  volumeTarget: HaEntity | null;
   coverUrl: string | null;
   favoriteEntities: HaEntity[];
-  volumeHighlight: number | null;
+  volumeFeedback: VolumeFeedbackBadge | null;
   onExpand: () => void;
   onPlayPause: () => void;
   onNextTrack: () => void;
-  onWheelVolume: (deltaPct: number) => void;
+  onWheelVolume: (direction: 'up' | 'down') => void;
   onTriggerFavorite: (entity: HaEntity) => void;
   onDragPointerDown: (e: React.PointerEvent<HTMLButtonElement>) => void;
 }
@@ -32,10 +33,11 @@ interface MiniPillProps {
 export const MiniPill: React.FC<MiniPillProps> = ({
   status,
   previewMode,
-  mediaPlayer,
+  playbackPlayer,
+  volumeTarget,
   coverUrl,
   favoriteEntities,
-  volumeHighlight,
+  volumeFeedback,
   onExpand,
   onPlayPause,
   onNextTrack,
@@ -45,23 +47,25 @@ export const MiniPill: React.FC<MiniPillProps> = ({
 }) => {
   const [forceFavorites, setForceFavorites] = useState(false);
 
-  const isPlaying = mediaPlayer?.state === 'playing';
-  // Affiche le mini-lecteur uniquement lorsqu'un média est activement en lecture
-  // (dès la mise en pause ou clic favoris, bascule sur les 3 favoris épinglés)
-  const showMediaView = Boolean(mediaPlayer && isPlaying && !forceFavorites);
+  const isPlaying = playbackPlayer?.state === 'playing';
+  const showMediaView = Boolean(playbackPlayer && isPlaying && !forceFavorites);
 
-  const currentVolumePct =
-    typeof mediaPlayer?.attributes.volume_level === 'number'
-      ? Math.round(mediaPlayer.attributes.volume_level * 100)
-      : 0;
-  const isMuted = Boolean(mediaPlayer?.attributes.is_volume_muted);
-  const displayedVolPct = volumeHighlight !== null ? volumeHighlight : currentVolumePct;
+  const volSource = volumeTarget || playbackPlayer;
+  const hasNumericVol = typeof volSource?.attributes.volume_level === 'number';
+  const currentVolumePct = hasNumericVol
+    ? Math.round((volSource!.attributes.volume_level as number) * 100)
+    : null;
+  const isMuted = Boolean(volSource?.attributes.is_volume_muted);
+  const barPct =
+    volumeFeedback?.pct !== null && volumeFeedback?.pct !== undefined
+      ? volumeFeedback.pct
+      : currentVolumePct;
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (!mediaPlayer) return;
+    if (!volSource) return;
     e.preventDefault();
-    const step = e.deltaY < 0 ? 4 : -4;
-    onWheelVolume(step);
+    e.stopPropagation();
+    onWheelVolume(e.deltaY < 0 ? 'up' : 'down');
   };
 
   const statusColor = previewMode
@@ -90,11 +94,26 @@ export const MiniPill: React.FC<MiniPillProps> = ({
         <GripVertical className="h-4 w-4" strokeWidth={1.75} />
       </button>
 
-      {showMediaView && mediaPlayer ? (
+      {volumeFeedback ? (
+        /* Retour visuel direct lors d'un réglage de volume (affiche quel appareil Télé/Ampli répond) */
+        <button
+          type="button"
+          onClick={onExpand}
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-control px-2 py-1 text-left"
+        >
+          <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-xs font-semibold text-fluent-ink">
+            <Volume2 className="h-4 w-4 shrink-0 text-fluent-accent" strokeWidth={1.75} />
+            <span className="truncate">{volumeFeedback.targetLabel}</span>
+          </span>
+          <span className="shrink-0 rounded-pill bg-fluent-accent/20 px-2 py-0.5 text-xs font-semibold text-fluent-accent tabular-data">
+            {volumeFeedback.valueLabel}
+          </span>
+        </button>
+      ) : showMediaView && playbackPlayer ? (
         <>
           {/* Pochette miniature */}
           <div className="relative h-9 w-9 shrink-0">
-            <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-fluent-elevated border border-white/10">
+            <div className="flex h-full w-full items-center justify-center overflow-hidden rounded-full border border-white/10 bg-fluent-elevated">
               {coverUrl ? (
                 <img src={coverUrl} alt="" className="h-full w-full object-cover" />
               ) : (
@@ -106,31 +125,35 @@ export const MiniPill: React.FC<MiniPillProps> = ({
             />
           </div>
 
-          {/* Titre court + jauge volume au survol/molette */}
+          {/* Titre court + volume réel de la sortie active */}
           <button
             type="button"
             onClick={onExpand}
             className="flex min-w-0 flex-1 flex-col items-start justify-center rounded-control px-1 py-0.5 text-left transition-colors duration-150 hover:bg-white/5"
           >
             <span className="w-full truncate text-xs font-semibold leading-tight text-fluent-ink">
-              {String(mediaPlayer.attributes.media_title || shortEntityLabel(mediaPlayer, 2))}
+              {String(
+                playbackPlayer.attributes.media_title || shortEntityLabel(playbackPlayer, 2),
+              )}
             </span>
             <span className="flex w-full items-center justify-between gap-1 text-[11px] leading-tight text-fluent-secondary">
               <span className="truncate">
-                {String(mediaPlayer.attributes.media_artist || shortEntityLabel(mediaPlayer, 2))}
-              </span>
-              <span
-                className={`inline-flex shrink-0 items-center gap-0.5 tabular-data transition-colors ${
-                  volumeHighlight !== null ? 'font-semibold text-fluent-accent' : 'text-fluent-secondary'
-                }`}
-              >
-                {isMuted ? (
-                  <VolumeX className="h-3 w-3 text-fluent-danger" strokeWidth={1.75} />
-                ) : (
-                  <Volume2 className="h-3 w-3" strokeWidth={1.75} />
+                {String(
+                  playbackPlayer.attributes.media_artist ||
+                    volSource?.attributes.friendly_name ||
+                    shortEntityLabel(playbackPlayer, 2),
                 )}
-                {isMuted ? '0%' : `${displayedVolPct}%`}
               </span>
+              {volSource && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 tabular-data text-fluent-secondary">
+                  {isMuted ? (
+                    <VolumeX className="h-3 w-3 text-fluent-danger" strokeWidth={1.75} />
+                  ) : (
+                    <Volume2 className="h-3 w-3" strokeWidth={1.75} />
+                  )}
+                  {isMuted ? '0%' : currentVolumePct !== null ? `${currentVolumePct}%` : ''}
+                </span>
+              )}
             </span>
           </button>
 
@@ -167,9 +190,9 @@ export const MiniPill: React.FC<MiniPillProps> = ({
         </>
       ) : (
         <>
-          {/* État + 3 Favoris rapides */}
+          {/* État + 3 Tuiles favorites issues de l'Aperçu */}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 pl-0.5">
-            {mediaPlayer && isPlaying && forceFavorites ? (
+            {playbackPlayer && isPlaying && forceFavorites ? (
               <button
                 type="button"
                 onClick={() => setForceFavorites(false)}
@@ -182,16 +205,16 @@ export const MiniPill: React.FC<MiniPillProps> = ({
             ) : (
               <span
                 className={`h-2.5 w-2.5 shrink-0 rounded-full ${statusColor}`}
-                title={previewMode ? 'Aperçu' : status === 'connected' ? 'En ligne' : 'Hors ligne'}
+                title={
+                  previewMode ? 'Aperçu' : status === 'connected' ? 'En ligne' : 'Hors ligne'
+                }
               />
             )}
 
             {favoriteEntities.length > 0 ? (
               <div className="flex min-w-0 flex-1 items-center gap-1">
                 {favoriteEntities.slice(0, 3).map((fav) => {
-                  const domain = fav.entity_id.split('.')[0];
-                  const isLightOn = domain === 'light' && fav.state === 'on';
-                  const activeTint = isLightOn ? getLightVisualColor(fav) : undefined;
+                  const activeTint = getHaTileAccentColor(fav);
 
                   return (
                     <button
@@ -200,21 +223,17 @@ export const MiniPill: React.FC<MiniPillProps> = ({
                       onClick={() => onTriggerFavorite(fav)}
                       title={fav.attributes.friendly_name || fav.entity_id}
                       style={
-                        isLightOn && activeTint
+                        activeTint
                           ? { backgroundColor: activeTint, color: '#09111e' }
                           : undefined
                       }
                       className={`flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-pill px-2 text-[11px] font-medium transition-colors duration-150 ${
-                        isLightOn
+                        activeTint
                           ? 'font-semibold'
                           : 'bg-fluent-elevated text-fluent-ink hover:bg-fluent-hover active:bg-fluent-active'
                       }`}
                     >
-                      {domain === 'light' ? (
-                        <Lightbulb className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                      ) : (
-                        <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                      )}
+                      {renderHaEntityIcon(fav, undefined, 'h-3.5 w-3.5 shrink-0')}
                       <span className="truncate">{shortEntityLabel(fav, 1)}</span>
                     </button>
                   );
@@ -226,12 +245,12 @@ export const MiniPill: React.FC<MiniPillProps> = ({
                 onClick={onExpand}
                 className="truncate px-1.5 text-xs font-medium text-fluent-secondary hover:text-fluent-ink"
               >
-                {status === 'connected' ? 'Contrôles' : 'Configurer'}
+                {status === 'connected' ? 'Aperçu' : 'Configurer'}
               </button>
             )}
           </div>
 
-          {mediaPlayer && !isPlaying && (
+          {playbackPlayer && !isPlaying && playbackPlayer.state === 'paused' && (
             <button
               type="button"
               onClick={onPlayPause}
@@ -256,17 +275,17 @@ export const MiniPill: React.FC<MiniPillProps> = ({
         <ChevronUp className="h-4 w-4" strokeWidth={1.75} />
       </button>
 
-      {/* Jauge continue de volume (molette / survol) sur le rebord inférieur de la pilule */}
-      {mediaPlayer && (
+      {/* Jauge continue de volume uniquement si l'appareil remonte un niveau numérique réel */}
+      {volSource && barPct !== null && (
         <div
           aria-hidden="true"
           className={`pointer-events-none absolute inset-x-5 bottom-0 h-[2.5px] overflow-hidden rounded-full bg-white/[0.08] transition-opacity duration-150 ${
-            volumeHighlight !== null ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'
+            volumeFeedback !== null ? 'opacity-100' : 'opacity-70 group-hover:opacity-100'
           }`}
         >
           <div
-            style={{ width: `${isMuted ? 0 : displayedVolPct}%` }}
-            className="h-full rounded-full bg-fluent-accent transition-transform duration-150"
+            style={{ width: `${isMuted ? 0 : barPct}%` }}
+            className="h-full rounded-full bg-fluent-accent"
           />
         </div>
       )}

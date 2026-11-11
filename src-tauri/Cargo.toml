@@ -1,6 +1,6 @@
 [package]
 name = "my-home-assistant"
-version = "0.1.0"
+version = "0.2.0"
 description = "Compagnon Home Assistant léger pour Windows 11"
 authors = ["jcf2108"]
 license = "MIT"

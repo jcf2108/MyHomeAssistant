@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from 'react';
 import {
-  Check,
   ChevronDown,
   Eye,
   EyeOff,
@@ -12,7 +11,15 @@ import {
   Star,
   Trash2,
 } from 'lucide-react';
-import type { AppSettings, HaConnectionStatus, HaEntity, UpdateStatus } from '../types/ha';
+import type {
+  AppSettings,
+  HaConnectionStatus,
+  HaEntity,
+  LovelaceDashboardInfo,
+  UpdateStatus,
+} from '../types/ha';
+import { isDomainToggleable, renderHaEntityIcon } from '../utils/haIcons';
+import { canControlEntityVolume } from '../utils/mediaRouting';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -20,19 +27,22 @@ interface SettingsViewProps {
   errorDetail?: string;
   hasStoredToken: boolean;
   allEntities: Record<string, HaEntity>;
+  overviewEntityIds: string[];
+  dashboards: LovelaceDashboardInfo[];
   autostart: boolean;
   appVersion: string;
   updateStatus: UpdateStatus;
   onSaveConnection: (url: string, newToken: string) => Promise<void>;
   onClearToken: () => Promise<void>;
+  onSelectDashboard: (urlPath: string | null) => void;
+  onRefreshOverview: () => void;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
   onToggleAutostart: (next: boolean) => void;
   onResetPosition: () => void;
   onCheckUpdate: (installNow: boolean) => void;
 }
 
-type SettingsTab = 'server' | 'entities' | 'system';
-type EntityFilterDomain = 'media_player' | 'light' | 'scene';
+type SettingsTab = 'server' | 'favorites' | 'system';
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
@@ -40,11 +50,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   errorDetail,
   hasStoredToken,
   allEntities,
+  overviewEntityIds,
+  dashboards,
   autostart,
   appVersion,
   updateStatus,
   onSaveConnection,
   onClearToken,
+  onSelectDashboard,
+  onRefreshOverview,
   onUpdateSettings,
   onToggleAutostart,
   onResetPosition,
@@ -55,7 +69,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [tokenInput, setTokenInput] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [domainTab, setDomainTab] = useState<EntityFilterDomain>('light');
   const [query, setQuery] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -69,53 +82,43 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const domainEntities = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  const volumePlayers = useMemo(() => {
     return Object.values(allEntities)
-      .filter((entity) => {
-        const domain = entity.entity_id.split('.')[0];
-        if (domainTab === 'scene') {
-          if (domain !== 'scene' && domain !== 'script') return false;
-        } else if (domain !== domainTab) {
-          return false;
-        }
-        if (!q) return true;
-        const name = (entity.attributes.friendly_name || '').toLowerCase();
-        return name.includes(q) || entity.entity_id.toLowerCase().includes(q);
-      })
+      .filter((e) => e.entity_id.startsWith('media_player.') && canControlEntityVolume(e))
       .sort((a, b) =>
         (a.attributes.friendly_name || a.entity_id).localeCompare(
           b.attributes.friendly_name || b.entity_id,
         ),
       );
-  }, [allEntities, domainTab, query]);
+  }, [allEntities]);
 
-  const isEntitySelected = (entityId: string): boolean => {
-    const domain = entityId.split('.')[0];
-    if (domain === 'media_player') return settings.enabledMediaPlayers.includes(entityId);
-    if (domain === 'light') return settings.enabledLights.includes(entityId);
-    return settings.enabledScenes.includes(entityId);
-  };
+  const pinnableEntities = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const overviewOrder = new Map<string, number>();
+    overviewEntityIds.forEach((id, idx) => overviewOrder.set(id, idx));
 
-  const toggleEntitySelection = (entityId: string) => {
-    const domain = entityId.split('.')[0];
-    if (domain === 'media_player') {
-      const next = settings.enabledMediaPlayers.includes(entityId)
-        ? settings.enabledMediaPlayers.filter((id) => id !== entityId)
-        : [...settings.enabledMediaPlayers, entityId];
-      onUpdateSettings({ enabledMediaPlayers: next });
-    } else if (domain === 'light') {
-      const next = settings.enabledLights.includes(entityId)
-        ? settings.enabledLights.filter((id) => id !== entityId)
-        : [...settings.enabledLights, entityId];
-      onUpdateSettings({ enabledLights: next });
-    } else {
-      const next = settings.enabledScenes.includes(entityId)
-        ? settings.enabledScenes.filter((id) => id !== entityId)
-        : [...settings.enabledScenes, entityId];
-      onUpdateSettings({ enabledScenes: next });
-    }
-  };
+    return Object.values(allEntities)
+      .filter((entity) => {
+        const domain = entity.entity_id.split('.')[0];
+        if (domain === 'media_player' || !isDomainToggleable(domain)) return false;
+        if (!q) return true;
+        const name = (entity.attributes.friendly_name || '').toLowerCase();
+        return name.includes(q) || entity.entity_id.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const aPinned = settings.pillFavorites.includes(a.entity_id) ? 0 : 1;
+        const bPinned = settings.pillFavorites.includes(b.entity_id) ? 0 : 1;
+        if (aPinned !== bPinned) return aPinned - bPinned;
+
+        const aIdx = overviewOrder.get(a.entity_id) ?? 99999;
+        const bIdx = overviewOrder.get(b.entity_id) ?? 99999;
+        if (aIdx !== bIdx) return aIdx - bIdx;
+
+        return (a.attributes.friendly_name || a.entity_id).localeCompare(
+          b.attributes.friendly_name || b.entity_id,
+        );
+      });
+  }, [allEntities, overviewEntityIds, query, settings.pillFavorites]);
 
   const toggleFavorite = (entityId: string) => {
     if (settings.pillFavorites.includes(entityId)) {
@@ -130,12 +133,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
-      {/* Navigation onglets instantanée (< 120 ms) */}
       <div className="flex items-center gap-1 border-b border-white/[0.06] px-4 py-2">
         {(
           [
             { id: 'server', label: 'Serveur' },
-            { id: 'entities', label: 'Entités' },
+            { id: 'favorites', label: 'Pilule & Audio' },
             { id: 'system', label: 'Système' },
           ] as const
         ).map((item) => (
@@ -145,7 +147,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             onClick={() => setTab(item.id)}
             className={`flex-1 rounded-control py-1.5 text-xs font-medium transition-colors duration-100 ${
               tab === item.id
-                ? 'bg-fluent-accent text-fluent-accentInk font-semibold'
+                ? 'bg-fluent-accent font-semibold text-fluent-accentInk'
                 : 'text-fluent-secondary hover:bg-fluent-elevated hover:text-fluent-ink'
             }`}
           >
@@ -170,7 +172,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 placeholder="http://homeassistant.local:8123"
-                className="w-full rounded-control bg-fluent-elevated px-3 py-2 text-xs text-fluent-ink placeholder:text-fluent-muted border border-white/[0.08] focus:border-fluent-accent focus:outline-none"
+                className="w-full rounded-control border border-white/[0.08] bg-fluent-elevated px-3 py-2 text-xs text-fluent-ink placeholder:text-fluent-muted focus:border-fluent-accent focus:outline-none"
               />
             </div>
 
@@ -196,7 +198,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   placeholder={
                     hasStoredToken ? '••••••••••••••••••••' : 'Coller le jeton longue durée'
                   }
-                  className="w-full rounded-control bg-fluent-elevated py-2 pl-3 pr-9 text-xs text-fluent-ink placeholder:text-fluent-muted border border-white/[0.08] focus:border-fluent-accent focus:outline-none"
+                  className="w-full rounded-control border border-white/[0.08] bg-fluent-elevated py-2 pl-3 pr-9 text-xs text-fluent-ink placeholder:text-fluent-muted focus:border-fluent-accent focus:outline-none"
                 />
                 <button
                   type="button"
@@ -223,10 +225,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="submit"
                 disabled={saving || !urlInput.trim() || (!tokenInput.trim() && !hasStoredToken)}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-control bg-fluent-accent py-2 text-xs font-semibold text-fluent-accentInk transition-colors duration-150 hover:bg-[#7bb6fc] disabled:bg-[#2a303c] disabled:text-fluent-muted"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-control bg-fluent-accent py-2 text-xs font-semibold text-fluent-accentInk transition-colors duration-150 hover:bg-[#7bb6fc] disabled:bg-[#282d37] disabled:text-fluent-muted"
               >
                 <KeyRound className="h-3.5 w-3.5" strokeWidth={2} />
-                {status === 'connected' ? 'Actualiser' : 'Connecter'}
+                {status === 'connected' ? 'Reconnecter' : 'Connecter'}
               </button>
 
               {hasStoredToken && (
@@ -242,8 +244,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
             </div>
 
-            <div className="mt-2 flex items-center justify-between border-t border-white/[0.06] pt-3">
-              <span className="text-xs font-medium text-fluent-ink">Mode aperçu</span>
+            {status === 'connected' && (
+              <div className="mt-1 flex flex-col gap-2 border-t border-white/[0.06] pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-fluent-ink">Tableau de bord</span>
+                  <button
+                    type="button"
+                    onClick={onRefreshOverview}
+                    className="inline-flex items-center gap-1 rounded-control bg-fluent-elevated px-2 py-1 text-[11px] font-medium text-fluent-secondary transition-colors hover:bg-fluent-hover hover:text-fluent-ink"
+                  >
+                    <RefreshCw className="h-3 w-3" strokeWidth={1.75} />
+                    Synchroniser
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <select
+                    aria-label="Tableau de bord Home Assistant"
+                    value={settings.selectedDashboardPath ?? '__default__'}
+                    onChange={(e) =>
+                      onSelectDashboard(
+                        e.target.value === '__default__' ? null : e.target.value,
+                      )
+                    }
+                    className="w-full appearance-none rounded-control border border-white/[0.08] bg-fluent-elevated py-1.5 pl-3 pr-7 text-xs text-fluent-ink focus:outline-none"
+                  >
+                    {dashboards.map((d) => (
+                      <option
+                        key={d.url_path ?? '__default__'}
+                        value={d.url_path ?? '__default__'}
+                        className="bg-fluent-base"
+                      >
+                        {d.title}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown
+                    className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 text-fluent-secondary"
+                    strokeWidth={1.75}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="mt-1 flex items-center justify-between border-t border-white/[0.06] pt-3">
+              <span className="text-xs font-medium text-fluent-ink">Mode démo hors-ligne</span>
               <button
                 type="button"
                 role="switch"
@@ -267,29 +312,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </form>
         )}
 
-        {tab === 'entities' && (
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-center gap-1">
-              {(
-                [
-                  { id: 'light', label: 'Lumières' },
-                  { id: 'scene', label: 'Scènes' },
-                  { id: 'media_player', label: 'Lecteurs' },
-                ] as const
-              ).map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => setDomainTab(d.id)}
-                  className={`flex-1 rounded-control py-1 text-[11px] font-medium transition-colors ${
-                    domainTab === d.id
-                      ? 'bg-fluent-elevated text-fluent-ink border border-white/10'
-                      : 'text-fluent-secondary hover:text-fluent-ink'
-                  }`}
+        {tab === 'favorites' && (
+          <div className="flex flex-col gap-3">
+            {/* Sélection de la sortie Volume (Auto Ampli/Télé ou appareil fixe) */}
+            <div className="flex flex-col gap-1.5 border-b border-white/[0.06] pb-3">
+              <label
+                htmlFor="vol-target-select"
+                className="text-xs font-medium text-fluent-ink"
+              >
+                Sortie volume (Ctrl + Volume / Molette)
+              </label>
+              <div className="relative">
+                <select
+                  id="vol-target-select"
+                  value={settings.volumeTargetMode}
+                  onChange={(e) => onUpdateSettings({ volumeTargetMode: e.target.value })}
+                  className="w-full appearance-none rounded-control border border-white/[0.08] bg-fluent-elevated py-1.5 pl-3 pr-7 text-xs text-fluent-ink focus:outline-none"
                 >
-                  {d.label}
-                </button>
-              ))}
+                  <option value="auto" className="bg-fluent-base">
+                    Auto (Ampli actif → Télé active)
+                  </option>
+                  {volumePlayers.map((mp) => (
+                    <option key={mp.entity_id} value={mp.entity_id} className="bg-fluent-base">
+                      {mp.attributes.friendly_name || mp.entity_id}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  className="pointer-events-none absolute right-2 top-2 h-3.5 w-3.5 text-fluent-secondary"
+                  strokeWidth={1.75}
+                />
+              </div>
+            </div>
+
+            {/* Sélection des 3 favoris de la Mini-Pilule */}
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-fluent-ink">Favoris pilule (max 3)</span>
+              <span className="text-[11px] text-fluent-secondary tabular-data">
+                {settings.pillFavorites.length}/3
+              </span>
             </div>
 
             <div className="relative">
@@ -301,65 +362,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Filtrer..."
-                className="w-full rounded-control bg-fluent-elevated py-1.5 pl-8 pr-2.5 text-xs text-fluent-ink placeholder:text-fluent-muted border border-white/[0.06] focus:border-fluent-accent focus:outline-none"
+                placeholder="Filtrer une tuile..."
+                className="w-full rounded-control border border-white/[0.06] bg-fluent-elevated py-1.5 pl-8 pr-2.5 text-xs text-fluent-ink placeholder:text-fluent-muted focus:border-fluent-accent focus:outline-none"
               />
             </div>
 
-            {domainEntities.length === 0 ? (
+            {pinnableEntities.length === 0 ? (
               <div className="py-6 text-center text-xs text-fluent-secondary">
                 Aucune entité disponible
               </div>
             ) : (
               <div className="flex flex-col gap-1">
-                {domainEntities.map((entity) => {
-                  const selected = isEntitySelected(entity.entity_id);
+                {pinnableEntities.slice(0, 40).map((entity) => {
                   const pinned = settings.pillFavorites.includes(entity.entity_id);
-                  const canPin = !entity.entity_id.startsWith('media_player.');
-
                   return (
-                    <div
+                    <button
                       key={entity.entity_id}
-                      className="flex items-center justify-between gap-2 rounded-control bg-fluent-elevated px-2.5 py-1.5"
+                      type="button"
+                      onClick={() => toggleFavorite(entity.entity_id)}
+                      className="flex items-center justify-between gap-2 rounded-control bg-fluent-elevated px-2.5 py-1.5 text-left transition-colors hover:bg-fluent-hover"
                     >
-                      <button
-                        type="button"
-                        onClick={() => toggleEntitySelection(entity.entity_id)}
-                        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                      >
-                        <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                            selected
-                              ? 'border-fluent-accent bg-fluent-accent text-fluent-accentInk'
-                              : 'border-white/25 bg-transparent'
-                          }`}
-                        >
-                          {selected && <Check className="h-3 w-3" strokeWidth={2.5} />}
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="text-fluent-secondary">
+                          {renderHaEntityIcon(entity, undefined, 'h-3.5 w-3.5')}
                         </span>
                         <span className="truncate text-xs text-fluent-ink">
                           {entity.attributes.friendly_name || entity.entity_id}
                         </span>
-                      </button>
+                      </span>
 
-                      {canPin && (
-                        <button
-                          type="button"
-                          onClick={() => toggleFavorite(entity.entity_id)}
-                          aria-label="Épingler sur la pilule"
-                          title="Favori pilule (max 3)"
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors ${
-                            pinned
-                              ? 'text-fluent-warm'
-                              : 'text-fluent-muted hover:text-fluent-secondary'
-                          }`}
-                        >
-                          <Star
-                            className={`h-3.5 w-3.5 ${pinned ? 'fill-current' : ''}`}
-                            strokeWidth={1.75}
-                          />
-                        </button>
-                      )}
-                    </div>
+                      <Star
+                        className={`h-3.5 w-3.5 shrink-0 ${
+                          pinned ? 'fill-current text-fluent-warm' : 'text-fluent-muted'
+                        }`}
+                        strokeWidth={1.75}
+                      />
+                    </button>
                   );
                 })}
               </div>
@@ -401,15 +439,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onChange={(e) =>
                     onUpdateSettings({ pcMediaGraceSeconds: Number(e.target.value) })
                   }
-                  className="appearance-none rounded-control bg-fluent-elevated py-1 pl-2.5 pr-7 text-xs text-fluent-ink border border-white/[0.08] transition-colors hover:bg-fluent-hover focus:outline-none"
+                  className="appearance-none rounded-control border border-white/[0.08] bg-fluent-elevated py-1 pl-2.5 pr-7 text-xs text-fluent-ink transition-colors hover:bg-fluent-hover focus:outline-none"
                 >
-                  <option value={45} className="bg-[#1c1e24]">
+                  <option value={45} className="bg-fluent-base">
                     Intelligente (45s)
                   </option>
-                  <option value={15} className="bg-[#1c1e24]">
+                  <option value={15} className="bg-fluent-base">
                     Courte (15s)
                   </option>
-                  <option value={0} className="bg-[#1c1e24]">
+                  <option value={0} className="bg-fluent-base">
                     Immédiate (0s)
                   </option>
                 </select>
@@ -421,21 +459,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-fluent-ink">Pas Ctrl + Volume</span>
+              <span className="text-xs font-medium text-fluent-ink">Pas volume (%)</span>
               <div className="relative inline-flex items-center">
                 <select
                   aria-label="Pas de réglage du volume"
                   value={settings.volumeStepPct}
                   onChange={(e) => onUpdateSettings({ volumeStepPct: Number(e.target.value) })}
-                  className="appearance-none rounded-control bg-fluent-elevated py-1 pl-2.5 pr-7 text-xs text-fluent-ink border border-white/[0.08] tabular-data transition-colors hover:bg-fluent-hover focus:outline-none"
+                  className="appearance-none rounded-control border border-white/[0.08] bg-fluent-elevated py-1 pl-2.5 pr-7 text-xs text-fluent-ink tabular-data transition-colors hover:bg-fluent-hover focus:outline-none"
                 >
-                  <option value={2} className="bg-[#1c1e24]">
+                  <option value={2} className="bg-fluent-base">
                     2%
                   </option>
-                  <option value={4} className="bg-[#1c1e24]">
+                  <option value={4} className="bg-fluent-base">
                     4%
                   </option>
-                  <option value={8} className="bg-[#1c1e24]">
+                  <option value={8} className="bg-fluent-base">
                     8%
                   </option>
                 </select>
@@ -495,7 +533,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onClick={() => onCheckUpdate(updateStatus.available)}
                   className={`inline-flex items-center gap-1.5 rounded-control px-2.5 py-1.5 text-xs font-medium transition-colors ${
                     updateStatus.available
-                      ? 'bg-fluent-accent text-fluent-accentInk font-semibold'
+                      ? 'bg-fluent-accent font-semibold text-fluent-accentInk'
                       : 'bg-fluent-elevated text-fluent-ink hover:bg-fluent-hover'
                   } disabled:opacity-45`}
                 >

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "MyHomeAssistant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "identifier": "io.github.jcf2108.myhomeassistant",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -33,7 +33,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",

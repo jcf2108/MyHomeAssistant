@@ -1,7 +1,7 @@
 {
   "name": "my-home-assistant",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Compagnon Home Assistant léger pour Windows 11 (Pilule flottante & Flyout Quick Settings)",
   "type": "module",
   "scripts": {

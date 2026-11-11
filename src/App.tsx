@@ -6,16 +6,20 @@ import {
   Link2,
   RefreshCw,
   Settings,
+  Volume2,
   Wifi,
   WifiOff,
 } from 'lucide-react';
+import type { HaTileActions } from './components/HaTileCard';
+import { LovelaceDashboardView } from './components/LovelaceDashboardView';
 import { MiniPill } from './components/MiniPill';
-import { MediaFlyoutSection } from './components/MediaFlyoutSection';
-import { LightsSection } from './components/LightsSection';
-import { ScenesSection } from './components/ScenesSection';
 import { SettingsView } from './components/SettingsView';
-import { PREVIEW_ENTITIES } from './data/previewEntities';
-import { HomeAssistantWsClient, normalizeHaBaseUrl, resolveHaMediaUrl } from './services/haWebsocket';
+import { PREVIEW_ENTITIES, PREVIEW_LOVELACE_CONFIG } from './data/previewEntities';
+import {
+  HomeAssistantWsClient,
+  normalizeHaBaseUrl,
+  resolveHaMediaUrl,
+} from './services/haWebsocket';
 import {
   checkAndOptionallyInstallUpdate,
   deleteSecureToken,
@@ -37,16 +41,35 @@ import type {
   AppSettings,
   HaConnectionStatus,
   HaEntity,
+  HaOverviewMetadata,
   NativeKeyCommand,
   TrayAction,
   UpdateStatus,
+  VolumeFeedbackBadge,
 } from './types/ha';
+import { shortEntityLabel } from './utils/color';
+import { isDomainToggleable } from './utils/haIcons';
+import {
+  buildAutoAreasOverview,
+  extractOverviewEntityIds,
+  normalizeLovelaceView,
+} from './utils/lovelaceLayout';
+import {
+  canControlEntityVolume,
+  resolvePlaybackTarget,
+  resolveVolumeTarget,
+  supportsVolumeSet,
+  supportsVolumeStep,
+} from './utils/mediaRouting';
 
-const SETTINGS_STORAGE_KEY = 'mha_settings_v1';
+const SETTINGS_STORAGE_KEY = 'mha_settings_v2';
 
 const DEFAULT_SETTINGS: AppSettings = {
   haUrl: '',
+  volumeTargetMode: 'auto',
   activeMediaPlayerId: '',
+  selectedDashboardPath: null,
+  selectedViewIndex: 0,
   enabledMediaPlayers: [],
   enabledLights: [],
   enabledScenes: [],
@@ -59,10 +82,17 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 function loadSavedSettings(): AppSettings {
   try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(SETTINGS_STORAGE_KEY) || localStorage.getItem('mha_settings_v1');
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<AppSettings>;
-    return { ...DEFAULT_SETTINGS, ...parsed };
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      volumeTargetMode: parsed.volumeTargetMode || 'auto',
+      selectedDashboardPath: parsed.selectedDashboardPath ?? null,
+      selectedViewIndex: parsed.selectedViewIndex ?? 0,
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -79,7 +109,9 @@ export const App: React.FC = () => {
   const [expanded, setExpanded] = useState<boolean>(() =>
     nativeTauri ? false : initialViewParam !== 'pill',
   );
-  const [showSettings, setShowSettings] = useState<boolean>(() => initialViewParam === 'settings');
+  const [showSettings, setShowSettings] = useState<boolean>(
+    () => initialViewParam === 'settings',
+  );
 
   const [status, setStatus] = useState<HaConnectionStatus>('unconfigured');
   const [errorDetail, setErrorDetail] = useState<string | undefined>(undefined);
@@ -89,16 +121,23 @@ export const App: React.FC = () => {
   const [previewEntities, setPreviewEntities] =
     useState<Record<string, HaEntity>>(PREVIEW_ENTITIES);
 
-  const [volumeHighlight, setVolumeHighlight] = useState<number | null>(null);
+  const [overviewMeta, setOverviewMeta] = useState<HaOverviewMetadata>({
+    lovelaceConfig: null,
+    dashboards: [{ id: 'default', url_path: null, title: 'Aperçu (par défaut)' }],
+    areas: [],
+    entityRegistry: {},
+    deviceRegistry: {},
+  });
+
+  const [volumeFeedback, setVolumeFeedback] = useState<VolumeFeedbackBadge | null>(null);
   const [autostart, setAutostart] = useState<boolean>(false);
-  const [appVersion, setAppVersion] = useState<string>('0.1.0');
+  const [appVersion, setAppVersion] = useState<string>('0.2.0');
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({
     checking: false,
     available: false,
     installing: false,
   });
 
-  // Déplacement libre en mode aperçu navigateur (sur Tauri, c'est la fenêtre OS elle-même qui bouge)
   const [browserOffset, setBrowserOffset] = useState<{ x: number; y: number } | null>(null);
   const dragStartRef = useRef<{
     pointerX: number;
@@ -125,6 +164,9 @@ export const App: React.FC = () => {
 
   const usingPreview = settings.previewMode && status !== 'connected';
   const entitiesMap = usingPreview ? previewEntities : liveEntities;
+  const activeLovelaceConfig = usingPreview
+    ? PREVIEW_LOVELACE_CONFIG
+    : overviewMeta.lovelaceConfig;
 
   // Synchronisation initiale des réglages natifs Tauri
   useEffect(() => {
@@ -136,17 +178,15 @@ export const App: React.FC = () => {
     void setPcGraceSecondsNative(settings.pcMediaGraceSeconds);
   }, [settings.pcMediaGraceSeconds]);
 
-  // Synchronisation de la taille/position fenêtre Tauri et du focus clavier
   useEffect(() => {
     void setWidgetExpandedNative(expanded);
   }, [expanded]);
 
   useEffect(() => {
-    // Active le focus clavier normal quand la vue Paramètres est ouverte pour saisir URL/Token
     void setWindowFocusableNative(expanded && showSettings);
   }, [expanded, showSettings]);
 
-  // Initialisation du client WebSocket Home Assistant
+  // Initialisation du client WebSocket Home Assistant + chargement de l'Aperçu Lovelace
   useEffect(() => {
     const client = new HomeAssistantWsClient({
       onStatusChange: (nextStatus, detail) => {
@@ -162,6 +202,9 @@ export const App: React.FC = () => {
           [entity.entity_id]: entity,
         }));
       },
+      onOverviewMetadata: (meta) => {
+        setOverviewMeta(meta);
+      },
     });
     wsClientRef.current = client;
 
@@ -170,7 +213,7 @@ export const App: React.FC = () => {
       const tokenPresent = Boolean(savedToken && savedToken.trim());
       setHasStoredToken(tokenPresent);
       if (settings.haUrl.trim() && savedToken) {
-        client.connect(settings.haUrl, savedToken);
+        client.connect(settings.haUrl, savedToken, settings.selectedDashboardPath);
       }
     })();
 
@@ -180,61 +223,6 @@ export const App: React.FC = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Auto-sélection intelligente des premières entités lors de la 1ère connexion réelle
-  useEffect(() => {
-    if (status !== 'connected') return;
-    const all = Object.values(liveEntities);
-    if (all.length === 0) return;
-
-    const patch: Partial<AppSettings> = {};
-    if (settings.enabledMediaPlayers.length === 0) {
-      const mps = all
-        .filter((e) => e.entity_id.startsWith('media_player.'))
-        .slice(0, 6)
-        .map((e) => e.entity_id);
-      if (mps.length > 0) {
-        patch.enabledMediaPlayers = mps;
-        if (!settings.activeMediaPlayerId) {
-          patch.activeMediaPlayerId = mps[0];
-        }
-      }
-    }
-    if (settings.enabledLights.length === 0) {
-      const lights = all
-        .filter((e) => e.entity_id.startsWith('light.'))
-        .slice(0, 6)
-        .map((e) => e.entity_id);
-      if (lights.length > 0) patch.enabledLights = lights;
-    }
-    if (settings.enabledScenes.length === 0) {
-      const scenes = all
-        .filter((e) => e.entity_id.startsWith('scene.') || e.entity_id.startsWith('script.'))
-        .slice(0, 6)
-        .map((e) => e.entity_id);
-      if (scenes.length > 0) patch.enabledScenes = scenes;
-    }
-    if (settings.pillFavorites.length === 0) {
-      const favs = all
-        .filter((e) => e.entity_id.startsWith('light.') || e.entity_id.startsWith('scene.'))
-        .slice(0, 3)
-        .map((e) => e.entity_id);
-      if (favs.length > 0) patch.pillFavorites = favs;
-    }
-
-    if (Object.keys(patch).length > 0) {
-      updateSettings(patch);
-    }
-  }, [
-    liveEntities,
-    settings.activeMediaPlayerId,
-    settings.enabledLights.length,
-    settings.enabledMediaPlayers.length,
-    settings.enabledScenes.length,
-    settings.pillFavorites.length,
-    status,
-    updateSettings,
-  ]);
 
   // Vérification automatique des mises à jour (démarrage + toutes les 2 heures)
   useEffect(() => {
@@ -250,36 +238,94 @@ export const App: React.FC = () => {
     };
   }, [nativeTauri, settings.autoCheckUpdates]);
 
-  // Entités filtrées à afficher
-  const mediaPlayers = useMemo(() => {
-    const allMps = Object.values(entitiesMap).filter((e) =>
-      e.entity_id.startsWith('media_player.'),
+  // Extraction fidèle des vues, sections et tuiles de l'Aperçu Home Assistant
+  const overviewEntityIds = useMemo(
+    () => extractOverviewEntityIds(activeLovelaceConfig, entitiesMap),
+    [activeLovelaceConfig, entitiesMap],
+  );
+
+  const views = useMemo(
+    () => activeLovelaceConfig?.views || [],
+    [activeLovelaceConfig],
+  );
+
+  const safeViewIndex = useMemo(() => {
+    if (views.length === 0) return 0;
+    if (views[settings.selectedViewIndex] && !views[settings.selectedViewIndex].subview) {
+      return settings.selectedViewIndex;
+    }
+    const firstNonSub = views.findIndex((v) => !v.subview);
+    return firstNonSub >= 0 ? firstNonSub : 0;
+  }, [settings.selectedViewIndex, views]);
+
+  const { badges: currentBadges, sections: currentSections } = useMemo(() => {
+    if (activeLovelaceConfig && views[safeViewIndex]) {
+      return normalizeLovelaceView(views[safeViewIndex], entitiesMap);
+    }
+    // Fallback automatique fidèle à l'Aperçu par Pièce (Areas) si HA n'a pas de fichier Lovelace personnalisé
+    const autoSections = buildAutoAreasOverview(
+      entitiesMap,
+      overviewMeta.areas,
+      overviewMeta.entityRegistry,
+      overviewMeta.deviceRegistry,
     );
-    if (usingPreview || settings.enabledMediaPlayers.length === 0) return allMps;
-    return allMps.filter((e) => settings.enabledMediaPlayers.includes(e.entity_id));
-  }, [entitiesMap, settings.enabledMediaPlayers, usingPreview]);
+    return { badges: [], sections: autoSections };
+  }, [
+    activeLovelaceConfig,
+    entitiesMap,
+    overviewMeta.areas,
+    overviewMeta.deviceRegistry,
+    overviewMeta.entityRegistry,
+    safeViewIndex,
+    views,
+  ]);
 
-  const activePlayer = useMemo<HaEntity | null>(() => {
-    if (mediaPlayers.length === 0) return null;
-    const explicit = mediaPlayers.find((p) => p.entity_id === settings.activeMediaPlayerId);
-    if (explicit) return explicit;
-    const playing = mediaPlayers.find((p) => p.state === 'playing');
-    return playing || mediaPlayers[0];
-  }, [mediaPlayers, settings.activeMediaPlayerId]);
+  // Initialisation automatique des 3 favoris de la mini-pilule à partir des premières tuiles de l'Aperçu
+  useEffect(() => {
+    if (status !== 'connected' || settings.pillFavorites.length > 0) return;
+    const candidates: string[] = [];
+    for (const id of overviewEntityIds) {
+      const domain = id.split('.')[0];
+      if (domain !== 'media_player' && isDomainToggleable(domain) && liveEntities[id]) {
+        candidates.push(id);
+        if (candidates.length >= 3) break;
+      }
+    }
+    if (candidates.length > 0) {
+      updateSettings({ pillFavorites: candidates });
+    }
+  }, [liveEntities, overviewEntityIds, settings.pillFavorites.length, status, updateSettings]);
 
-  const visibleLights = useMemo(() => {
-    const allLights = Object.values(entitiesMap).filter((e) => e.entity_id.startsWith('light.'));
-    if (usingPreview || settings.enabledLights.length === 0) return allLights.slice(0, 6);
-    return allLights.filter((e) => settings.enabledLights.includes(e.entity_id));
-  }, [entitiesMap, settings.enabledLights, usingPreview]);
+  // Tous les lecteurs media_player et routage intelligent Télé / Ampli
+  const allMediaPlayers = useMemo(
+    () => Object.values(entitiesMap).filter((e) => e.entity_id.startsWith('media_player.')),
+    [entitiesMap],
+  );
 
-  const visibleScenes = useMemo(() => {
-    const allScenes = Object.values(entitiesMap).filter(
-      (e) => e.entity_id.startsWith('scene.') || e.entity_id.startsWith('script.'),
-    );
-    if (usingPreview || settings.enabledScenes.length === 0) return allScenes.slice(0, 6);
-    return allScenes.filter((e) => settings.enabledScenes.includes(e.entity_id));
-  }, [entitiesMap, settings.enabledScenes, usingPreview]);
+  const volumeCapablePlayers = useMemo(
+    () => allMediaPlayers.filter(canControlEntityVolume),
+    [allMediaPlayers],
+  );
+
+  const resolvedVolumeTarget = useMemo(
+    () =>
+      resolveVolumeTarget(
+        allMediaPlayers,
+        overviewEntityIds,
+        settings.volumeTargetMode,
+      ),
+    [allMediaPlayers, overviewEntityIds, settings.volumeTargetMode],
+  );
+
+  const resolvedPlaybackTarget = useMemo(
+    () =>
+      resolvePlaybackTarget(
+        allMediaPlayers,
+        overviewEntityIds,
+        settings.activeMediaPlayerId,
+      ),
+    [allMediaPlayers, overviewEntityIds, settings.activeMediaPlayerId],
+  );
 
   const favoriteEntities = useMemo(() => {
     if (usingPreview && settings.pillFavorites.length === 0) {
@@ -295,19 +341,22 @@ export const App: React.FC = () => {
   }, [entitiesMap, settings.pillFavorites, usingPreview]);
 
   const coverUrl = useMemo(() => {
-    if (!activePlayer) return null;
-    return resolveHaMediaUrl(settings.haUrl, activePlayer.attributes.entity_picture);
-  }, [activePlayer, settings.haUrl]);
+    if (!resolvedPlaybackTarget) return null;
+    return resolveHaMediaUrl(
+      settings.haUrl,
+      resolvedPlaybackTarget.attributes.entity_picture,
+    );
+  }, [resolvedPlaybackTarget, settings.haUrl]);
 
-  const flashVolumeBadge = useCallback((pct: number) => {
-    setVolumeHighlight(pct);
+  const flashVolumeFeedback = useCallback((badge: VolumeFeedbackBadge) => {
+    setVolumeFeedback(badge);
     if (volumeBadgeTimerRef.current !== null) {
       window.clearTimeout(volumeBadgeTimerRef.current);
     }
     volumeBadgeTimerRef.current = window.setTimeout(() => {
-      setVolumeHighlight(null);
+      setVolumeFeedback(null);
       volumeBadgeTimerRef.current = null;
-    }, 1200);
+    }, 1300);
   }, []);
 
   const runThrottledService = useCallback(
@@ -318,9 +367,7 @@ export const App: React.FC = () => {
       }
       const timer = window.setTimeout(() => {
         throttleTimersRef.current.delete(key);
-        void fn().catch(() => {
-          // state will resync from HA WebSocket
-        });
+        void fn().catch(() => {});
       }, delayMs);
       throttleTimersRef.current.set(key, timer);
     },
@@ -339,72 +386,34 @@ export const App: React.FC = () => {
     [usingPreview],
   );
 
-  // Actions Média & Volume
-  const handlePlayPause = useCallback(() => {
-    if (!activePlayer) return;
-    const nextState = activePlayer.state === 'playing' ? 'paused' : 'playing';
-    applyEntityOptimistic(activePlayer.entity_id, (cur) => ({ ...cur, state: nextState }));
-    if (!usingPreview) {
-      void wsClientRef.current
-        ?.callService('media_player', 'media_play_pause', {}, { entity_id: activePlayer.entity_id })
-        .catch(() => {});
-    }
-  }, [activePlayer, applyEntityOptimistic, usingPreview]);
-
-  const handleNextTrack = useCallback(() => {
-    if (!activePlayer) return;
-    if (usingPreview) {
-      applyEntityOptimistic(activePlayer.entity_id, (cur) => ({
-        ...cur,
-        state: 'playing',
-        attributes: {
-          ...cur.attributes,
-          media_title:
-            cur.attributes.media_title === 'Midnight City' ? 'Nightcall' : 'Midnight City',
-          media_artist: cur.attributes.media_title === 'Midnight City' ? 'Kavinsky' : 'M83',
-        },
-      }));
-      return;
-    }
-    void wsClientRef.current
-      ?.callService('media_player', 'media_next_track', {}, { entity_id: activePlayer.entity_id })
-      .catch(() => {});
-  }, [activePlayer, applyEntityOptimistic, usingPreview]);
-
-  const handlePrevTrack = useCallback(() => {
-    if (!activePlayer) return;
-    if (usingPreview) {
-      handleNextTrack();
-      return;
-    }
-    void wsClientRef.current
-      ?.callService(
-        'media_player',
-        'media_previous_track',
-        {},
-        { entity_id: activePlayer.entity_id },
-      )
-      .catch(() => {});
-  }, [activePlayer, handleNextTrack, usingPreview]);
-
-  const handleSetVolumePct = useCallback(
-    (pct: number, showBadge = false) => {
-      if (!activePlayer) return;
+  // --- Réglage matériel du Volume (compatible Ampli AVR, Sonos, TV HDMI-CEC/IR/WebOS/Samsung) ---
+  const setVolumePctOnEntity = useCallback(
+    (target: HaEntity, pct: number, showFeedback = false) => {
       const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-      if (showBadge) {
-        flashVolumeBadge(clamped);
+      const label = target.attributes.friendly_name || shortEntityLabel(target, 2);
+
+      if (showFeedback) {
+        flashVolumeFeedback({
+          targetLabel: label,
+          valueLabel: `${clamped}%`,
+          pct: clamped,
+        });
       }
-      applyEntityOptimistic(activePlayer.entity_id, (cur) => ({
-        ...cur,
-        attributes: {
-          ...cur.attributes,
-          volume_level: clamped / 100,
-          is_volume_muted: clamped === 0,
-        },
-      }));
+
+      if (typeof target.attributes.volume_level === 'number') {
+        applyEntityOptimistic(target.entity_id, (cur) => ({
+          ...cur,
+          attributes: {
+            ...cur.attributes,
+            volume_level: clamped / 100,
+            is_volume_muted: clamped === 0,
+          },
+        }));
+      }
+
       if (!usingPreview) {
-        const targetId = activePlayer.entity_id;
-        runThrottledService(`vol:${targetId}`, 80, async () => {
+        const targetId = target.entity_id;
+        runThrottledService(`vol:${targetId}`, 75, async () => {
           await wsClientRef.current?.callService(
             'media_player',
             'volume_set',
@@ -414,236 +423,504 @@ export const App: React.FC = () => {
         });
       }
     },
-    [activePlayer, applyEntityOptimistic, flashVolumeBadge, runThrottledService, usingPreview],
+    [applyEntityOptimistic, flashVolumeFeedback, runThrottledService, usingPreview],
   );
 
-  const handleStepVolume = useCallback(
-    (deltaPct: number) => {
-      if (!activePlayer) return;
-      const current =
-        typeof activePlayer.attributes.volume_level === 'number'
-          ? Math.round(activePlayer.attributes.volume_level * 100)
-          : 30;
-      handleSetVolumePct(current + deltaPct, true);
+  const stepVolumeOnEntity = useCallback(
+    (target: HaEntity | null, direction: 'up' | 'down', showFeedback = true) => {
+      if (!target) return;
+      const label = target.attributes.friendly_name || shortEntityLabel(target, 2);
+      const hasNumeric = typeof target.attributes.volume_level === 'number';
+      const canSet = supportsVolumeSet(target) && hasNumeric;
+      const canStep = supportsVolumeStep(target);
+
+      if (usingPreview) {
+        const cur = hasNumeric ? Math.round((target.attributes.volume_level as number) * 100) : 40;
+        const next = Math.max(
+          0,
+          Math.min(100, cur + (direction === 'up' ? settings.volumeStepPct : -settings.volumeStepPct)),
+        );
+        setVolumePctOnEntity(target, next, showFeedback);
+        return;
+      }
+
+      // Priorité à volume_up / volume_down dès que supporté par l'intégration matérielle (TV CEC/IR/WebOS, Ampli)
+      // ou lorsque volume_level n'est pas exposé numériquement.
+      if (canStep || !canSet) {
+        const estPct = hasNumeric
+          ? Math.max(
+              0,
+              Math.min(
+                100,
+                Math.round((target.attributes.volume_level as number) * 100) +
+                  (direction === 'up' ? settings.volumeStepPct : -settings.volumeStepPct),
+              ),
+            )
+          : null;
+
+        if (showFeedback) {
+          flashVolumeFeedback({
+            targetLabel: label,
+            valueLabel:
+              estPct !== null
+                ? `${estPct}%`
+                : direction === 'up'
+                  ? 'Vol +'
+                  : 'Vol −',
+            pct: estPct,
+          });
+        }
+
+        void wsClientRef.current
+          ?.callService(
+            'media_player',
+            direction === 'up' ? 'volume_up' : 'volume_down',
+            {},
+            { entity_id: target.entity_id },
+          )
+          .catch(() => {});
+        return;
+      }
+
+      // Appareils supportant uniquement volume_set (0.0 .. 1.0)
+      const currentPct = Math.round((target.attributes.volume_level as number) * 100);
+      const delta = direction === 'up' ? settings.volumeStepPct : -settings.volumeStepPct;
+      setVolumePctOnEntity(target, currentPct + delta, showFeedback);
     },
-    [activePlayer, handleSetVolumePct],
+    [
+      flashVolumeFeedback,
+      setVolumePctOnEntity,
+      settings.volumeStepPct,
+      usingPreview,
+    ],
   );
 
-  const handleToggleMute = useCallback(() => {
-    if (!activePlayer) return;
-    const nextMuted = !activePlayer.attributes.is_volume_muted;
-    applyEntityOptimistic(activePlayer.entity_id, (cur) => ({
-      ...cur,
-      attributes: { ...cur.attributes, is_volume_muted: nextMuted },
-    }));
-    if (!usingPreview) {
-      void wsClientRef.current
-        ?.callService(
-          'media_player',
-          'volume_mute',
-          { is_volume_muted: nextMuted },
-          { entity_id: activePlayer.entity_id },
-        )
-        .catch(() => {});
-    }
-  }, [activePlayer, applyEntityOptimistic, usingPreview]);
+  const toggleMuteOnEntity = useCallback(
+    (target: HaEntity | null) => {
+      if (!target) return;
+      const nextMuted = !target.attributes.is_volume_muted;
+      const label = target.attributes.friendly_name || shortEntityLabel(target, 2);
 
-  const handleSelectSource = useCallback(
-    (source: string) => {
-      if (!activePlayer) return;
-      applyEntityOptimistic(activePlayer.entity_id, (cur) => ({
+      flashVolumeFeedback({
+        targetLabel: label,
+        valueLabel: nextMuted ? 'Muet' : 'Son actif',
+        pct: nextMuted
+          ? 0
+          : typeof target.attributes.volume_level === 'number'
+            ? Math.round(target.attributes.volume_level * 100)
+            : null,
+      });
+
+      applyEntityOptimistic(target.entity_id, (cur) => ({
         ...cur,
-        attributes: { ...cur.attributes, source },
+        attributes: { ...cur.attributes, is_volume_muted: nextMuted },
       }));
+
       if (!usingPreview) {
         void wsClientRef.current
           ?.callService(
             'media_player',
-            'select_source',
-            { source },
-            { entity_id: activePlayer.entity_id },
+            'volume_mute',
+            { is_volume_muted: nextMuted },
+            { entity_id: target.entity_id },
           )
           .catch(() => {});
       }
     },
-    [activePlayer, applyEntityOptimistic, usingPreview],
+    [applyEntityOptimistic, flashVolumeFeedback, usingPreview],
   );
 
-  // Actions Lumières & Scènes
-  const handleToggleLight = useCallback(
-    (entityId: string) => {
-      const entity = entitiesMap[entityId];
-      if (!entity) return;
-      const nextOn = entity.state !== 'on';
-      applyEntityOptimistic(entityId, (cur) => ({
-        ...cur,
-        state: nextOn ? 'on' : 'off',
-        attributes: {
-          ...cur.attributes,
-          brightness: nextOn ? cur.attributes.brightness || 204 : cur.attributes.brightness,
-        },
-      }));
+  // Interception globale Ctrl + Molette dans l'application (bloque le zoom WebView2 et pilote l'Ampli/Télé)
+  const volumeTargetRef = useRef<HaEntity | null>(null);
+  volumeTargetRef.current = resolvedVolumeTarget;
+  const stepVolumeRef = useRef(stepVolumeOnEntity);
+  stepVolumeRef.current = stepVolumeOnEntity;
+
+  useEffect(() => {
+    const onGlobalWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      stepVolumeRef.current(volumeTargetRef.current, e.deltaY < 0 ? 'up' : 'down', true);
+    };
+    window.addEventListener('wheel', onGlobalWheel, { capture: true, passive: false });
+    return () => window.removeEventListener('wheel', onGlobalWheel, { capture: true });
+  }, []);
+
+  // --- Actions Média Transport ---
+  const triggerPlayPause = useCallback(
+    (player: HaEntity | null) => {
+      if (!player) return;
+      const nextState = player.state === 'playing' ? 'paused' : 'playing';
+      applyEntityOptimistic(player.entity_id, (cur) => ({ ...cur, state: nextState }));
       if (!usingPreview) {
         void wsClientRef.current
-          ?.callService('light', nextOn ? 'turn_on' : 'turn_off', {}, { entity_id: entityId })
-          .catch(() => {});
-      }
-    },
-    [applyEntityOptimistic, entitiesMap, usingPreview],
-  );
-
-  const handleLightBrightness = useCallback(
-    (entityId: string, pct: number) => {
-      const clamped = Math.max(0, Math.min(100, Math.round(pct)));
-      applyEntityOptimistic(entityId, (cur) => ({
-        ...cur,
-        state: clamped > 0 ? 'on' : 'off',
-        attributes: {
-          ...cur.attributes,
-          brightness: Math.round((clamped / 100) * 255),
-        },
-      }));
-      if (!usingPreview) {
-        runThrottledService(`bri:${entityId}`, 90, async () => {
-          if (clamped === 0) {
-            await wsClientRef.current?.callService('light', 'turn_off', {}, { entity_id: entityId });
-          } else {
-            await wsClientRef.current?.callService(
-              'light',
-              'turn_on',
-              { brightness_pct: clamped },
-              { entity_id: entityId },
-            );
-          }
-        });
-      }
-    },
-    [applyEntityOptimistic, runThrottledService, usingPreview],
-  );
-
-  const handleLightColorTemp = useCallback(
-    (entityId: string, kelvin: number) => {
-      applyEntityOptimistic(entityId, (cur) => ({
-        ...cur,
-        state: 'on',
-        attributes: {
-          ...cur.attributes,
-          color_mode: 'color_temp',
-          color_temp_kelvin: kelvin,
-        },
-      }));
-      if (!usingPreview) {
-        runThrottledService(`kelvin:${entityId}`, 90, async () => {
-          await wsClientRef.current?.callService(
-            'light',
-            'turn_on',
-            { color_temp_kelvin: kelvin },
-            { entity_id: entityId },
-          );
-        });
-      }
-    },
-    [applyEntityOptimistic, runThrottledService, usingPreview],
-  );
-
-  const handleLightRgb = useCallback(
-    (entityId: string, rgb: [number, number, number]) => {
-      applyEntityOptimistic(entityId, (cur) => ({
-        ...cur,
-        state: 'on',
-        attributes: {
-          ...cur.attributes,
-          color_mode: 'rgb',
-          rgb_color: rgb,
-        },
-      }));
-      if (!usingPreview) {
-        void wsClientRef.current
-          ?.callService('light', 'turn_on', { rgb_color: rgb }, { entity_id: entityId })
+          ?.callService('media_player', 'media_play_pause', {}, { entity_id: player.entity_id })
           .catch(() => {});
       }
     },
     [applyEntityOptimistic, usingPreview],
   );
 
-  const handleActivateScene = useCallback(
-    (entity: HaEntity) => {
+  const triggerNext = useCallback(
+    (player: HaEntity | null) => {
+      if (!player) return;
       if (usingPreview) {
-        if (entity.entity_id === 'script.extinction_totale') {
-          setPreviewEntities((prev) => {
-            const copy = { ...prev };
-            for (const key of Object.keys(copy)) {
-              if (key.startsWith('light.')) {
-                copy[key] = { ...copy[key], state: 'off' };
-              }
-            }
-            return copy;
-          });
-        } else if (entity.entity_id === 'scene.ambiance_cinema') {
-          setPreviewEntities((prev) => ({
-            ...prev,
-            'light.suspension_salon': {
-              ...prev['light.suspension_salon'],
-              state: 'on',
-              attributes: {
-                ...prev['light.suspension_salon'].attributes,
-                brightness: 64,
-                color_temp_kelvin: 2400,
-              },
-            },
-            'light.bandeau_tv': {
-              ...prev['light.bandeau_tv'],
-              state: 'on',
-              attributes: {
-                ...prev['light.bandeau_tv'].attributes,
-                brightness: 180,
-              },
-            },
-          }));
+        applyEntityOptimistic(player.entity_id, (cur) => ({
+          ...cur,
+          state: 'playing',
+          attributes: {
+            ...cur.attributes,
+            media_title:
+              cur.attributes.media_title === 'Midnight City' ? 'Nightcall' : 'Midnight City',
+            media_artist: cur.attributes.media_title === 'Midnight City' ? 'Kavinsky' : 'M83',
+          },
+        }));
+        return;
+      }
+      void wsClientRef.current
+        ?.callService('media_player', 'media_next_track', {}, { entity_id: player.entity_id })
+        .catch(() => {});
+    },
+    [applyEntityOptimistic, usingPreview],
+  );
+
+  const triggerPrev = useCallback(
+    (player: HaEntity | null) => {
+      if (!player) return;
+      if (usingPreview) {
+        triggerNext(player);
+        return;
+      }
+      void wsClientRef.current
+        ?.callService(
+          'media_player',
+          'media_previous_track',
+          {},
+          { entity_id: player.entity_id },
+        )
+        .catch(() => {});
+    },
+    [triggerNext, usingPreview],
+  );
+
+  // --- Actions universelles sur toutes les Tuiles de l'Aperçu ---
+  const handlePrimaryTileToggle = useCallback(
+    (entity: HaEntity) => {
+      const domain = entity.entity_id.split('.')[0];
+
+      if (domain === 'light' || domain === 'switch' || domain === 'input_boolean' || domain === 'fan') {
+        const nextOn = entity.state !== 'on';
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          state: nextOn ? 'on' : 'off',
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(domain, nextOn ? 'turn_on' : 'turn_off', {}, { entity_id: entity.entity_id })
+            .catch(() => {});
         }
         return;
       }
 
-      const domain = entity.entity_id.startsWith('script.') ? 'script' : 'scene';
-      void wsClientRef.current
-        ?.callService(domain, 'turn_on', {}, { entity_id: entity.entity_id })
-        .catch(() => {});
-    },
-    [usingPreview],
-  );
+      if (domain === 'scene' || domain === 'script') {
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(domain, 'turn_on', {}, { entity_id: entity.entity_id })
+            .catch(() => {});
+        }
+        return;
+      }
 
-  const handleTriggerFavorite = useCallback(
-    (fav: HaEntity) => {
-      if (fav.entity_id.startsWith('light.')) {
-        handleToggleLight(fav.entity_id);
-      } else {
-        handleActivateScene(fav);
+      if (domain === 'button' || domain === 'input_button') {
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(domain, 'press', {}, { entity_id: entity.entity_id })
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (domain === 'cover') {
+        const isClosed = entity.state === 'closed';
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          state: isClosed ? 'open' : 'closed',
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              'cover',
+              isClosed ? 'open_cover' : 'close_cover',
+              {},
+              { entity_id: entity.entity_id },
+            )
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (domain === 'lock') {
+        const isLocked = entity.state === 'locked';
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          state: isLocked ? 'unlocked' : 'locked',
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              'lock',
+              isLocked ? 'unlock' : 'lock',
+              {},
+              { entity_id: entity.entity_id },
+            )
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (domain === 'media_player') {
+        if (entity.state === 'off' || entity.state === 'standby') {
+          applyEntityOptimistic(entity.entity_id, (cur) => ({ ...cur, state: 'on' }));
+          if (!usingPreview) {
+            void wsClientRef.current
+              ?.callService('media_player', 'turn_on', {}, { entity_id: entity.entity_id })
+              .catch(() => {});
+          }
+        } else {
+          triggerPlayPause(entity);
+        }
       }
     },
-    [handleActivateScene, handleToggleLight],
+    [applyEntityOptimistic, triggerPlayPause, usingPreview],
   );
 
-  // Abonnement aux événements natifs Windows (touches média, Ctrl+Volume, System Tray)
+  const tileActions = useMemo<HaTileActions>(
+    () => ({
+      haBaseUrl: settings.haUrl,
+      onPrimaryToggle: handlePrimaryTileToggle,
+      onLightBrightness: (entityId, pct) => {
+        const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+        applyEntityOptimistic(entityId, (cur) => ({
+          ...cur,
+          state: clamped > 0 ? 'on' : 'off',
+          attributes: {
+            ...cur.attributes,
+            brightness: Math.round((clamped / 100) * 255),
+          },
+        }));
+        if (!usingPreview) {
+          runThrottledService(`bri:${entityId}`, 85, async () => {
+            if (clamped === 0) {
+              await wsClientRef.current?.callService('light', 'turn_off', {}, { entity_id: entityId });
+            } else {
+              await wsClientRef.current?.callService(
+                'light',
+                'turn_on',
+                { brightness_pct: clamped },
+                { entity_id: entityId },
+              );
+            }
+          });
+        }
+      },
+      onLightColorTemp: (entityId, kelvin) => {
+        applyEntityOptimistic(entityId, (cur) => ({
+          ...cur,
+          state: 'on',
+          attributes: {
+            ...cur.attributes,
+            color_mode: 'color_temp',
+            color_temp_kelvin: kelvin,
+          },
+        }));
+        if (!usingPreview) {
+          runThrottledService(`kelvin:${entityId}`, 85, async () => {
+            await wsClientRef.current?.callService(
+              'light',
+              'turn_on',
+              { color_temp_kelvin: kelvin },
+              { entity_id: entityId },
+            );
+          });
+        }
+      },
+      onLightRgb: (entityId, rgb) => {
+        applyEntityOptimistic(entityId, (cur) => ({
+          ...cur,
+          state: 'on',
+          attributes: { ...cur.attributes, color_mode: 'rgb', rgb_color: rgb },
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService('light', 'turn_on', { rgb_color: rgb }, { entity_id: entityId })
+            .catch(() => {});
+        }
+      },
+      onMediaPlayPause: triggerPlayPause,
+      onMediaPrev: triggerPrev,
+      onMediaNext: triggerNext,
+      onMediaPowerToggle: (entity) => {
+        const turnOn = entity.state === 'off' || entity.state === 'standby';
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          state: turnOn ? 'on' : 'off',
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              'media_player',
+              turnOn ? 'turn_on' : 'turn_off',
+              {},
+              { entity_id: entity.entity_id },
+            )
+            .catch(() => {});
+        }
+      },
+      onMediaVolumeSet: (entity, pct) => setVolumePctOnEntity(entity, pct, false),
+      onMediaVolumeStep: (entity, direction) => stepVolumeOnEntity(entity, direction, true),
+      onMediaMuteToggle: (entity) => toggleMuteOnEntity(entity),
+      onMediaSelectSource: (entity, source) => {
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          attributes: { ...cur.attributes, source },
+        }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              'media_player',
+              'select_source',
+              { source },
+              { entity_id: entity.entity_id },
+            )
+            .catch(() => {});
+        }
+      },
+      onCoverCommand: (entityId, cmd) => {
+        if (usingPreview) {
+          applyEntityOptimistic(entityId, (cur) => ({
+            ...cur,
+            state: cmd === 'close_cover' ? 'closed' : 'open',
+            attributes: {
+              ...cur.attributes,
+              current_position: cmd === 'close_cover' ? 0 : cmd === 'open_cover' ? 100 : 50,
+            },
+          }));
+          return;
+        }
+        void wsClientRef.current
+          ?.callService('cover', cmd, {}, { entity_id: entityId })
+          .catch(() => {});
+      },
+      onCoverPosition: (entityId, position) => {
+        applyEntityOptimistic(entityId, (cur) => ({
+          ...cur,
+          state: position === 0 ? 'closed' : 'open',
+          attributes: { ...cur.attributes, current_position: position },
+        }));
+        if (!usingPreview) {
+          runThrottledService(`cov:${entityId}`, 100, async () => {
+            await wsClientRef.current?.callService(
+              'cover',
+              'set_cover_position',
+              { position },
+              { entity_id: entityId },
+            );
+          });
+        }
+      },
+      onClimateTemp: (entityId, temp) => {
+        applyEntityOptimistic(entityId, (cur) => ({
+          ...cur,
+          attributes: { ...cur.attributes, temperature: temp },
+        }));
+        if (!usingPreview) {
+          runThrottledService(`clim:${entityId}`, 120, async () => {
+            await wsClientRef.current?.callService(
+              'climate',
+              'set_temperature',
+              { temperature: temp },
+              { entity_id: entityId },
+            );
+          });
+        }
+      },
+      onClimateMode: (entityId, hvacMode) => {
+        applyEntityOptimistic(entityId, (cur) => ({ ...cur, state: hvacMode }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              'climate',
+              'set_hvac_mode',
+              { hvac_mode: hvacMode },
+              { entity_id: entityId },
+            )
+            .catch(() => {});
+        }
+      },
+      onSelectOption: (entity, option) => {
+        const domain = entity.entity_id.split('.')[0];
+        applyEntityOptimistic(entity.entity_id, (cur) => ({ ...cur, state: option }));
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(domain, 'select_option', { option }, { entity_id: entity.entity_id })
+            .catch(() => {});
+        }
+      },
+      onNumberValue: (entity, value) => {
+        const domain = entity.entity_id.split('.')[0];
+        applyEntityOptimistic(entity.entity_id, (cur) => ({
+          ...cur,
+          state: String(value),
+        }));
+        if (!usingPreview) {
+          runThrottledService(`num:${entity.entity_id}`, 90, async () => {
+            await wsClientRef.current?.callService(
+              domain,
+              'set_value',
+              { value },
+              { entity_id: entity.entity_id },
+            );
+          });
+        }
+      },
+    }),
+    [
+      applyEntityOptimistic,
+      handlePrimaryTileToggle,
+      runThrottledService,
+      setVolumePctOnEntity,
+      settings.haUrl,
+      stepVolumeOnEntity,
+      toggleMuteOnEntity,
+      triggerNext,
+      triggerPlayPause,
+      triggerPrev,
+      usingPreview,
+    ],
+  );
+
+  // Abonnement aux événements natifs Windows (touches média -> playbackTarget, Ctrl+Volume -> volumeTarget)
   const keyActionRef = useRef<(cmd: NativeKeyCommand) => void>(() => {});
   keyActionRef.current = (cmd: NativeKeyCommand) => {
     switch (cmd) {
       case 'play_pause':
-        handlePlayPause();
+        triggerPlayPause(resolvedPlaybackTarget);
         break;
       case 'next':
-        handleNextTrack();
+        triggerNext(resolvedPlaybackTarget);
         break;
       case 'previous':
-        handlePrevTrack();
+        triggerPrev(resolvedPlaybackTarget);
         break;
       case 'volume_up':
-        handleStepVolume(settings.volumeStepPct);
+        stepVolumeOnEntity(resolvedVolumeTarget, 'up', true);
         break;
       case 'volume_down':
-        handleStepVolume(-settings.volumeStepPct);
+        stepVolumeOnEntity(resolvedVolumeTarget, 'down', true);
         break;
       case 'volume_mute':
-        handleToggleMute();
+        toggleMuteOnEntity(resolvedVolumeTarget);
         break;
       default:
         break;
@@ -688,7 +965,7 @@ export const App: React.FC = () => {
     }
     updateSettings({ haUrl: cleanUrl, previewMode: false });
     if (cleanUrl && activeToken) {
-      wsClientRef.current?.connect(cleanUrl, activeToken);
+      wsClientRef.current?.connect(cleanUrl, activeToken, settings.selectedDashboardPath);
     }
   };
 
@@ -698,6 +975,15 @@ export const App: React.FC = () => {
     wsClientRef.current?.disconnect();
     setLiveEntities({});
     setStatus('unconfigured');
+  };
+
+  const handleSelectDashboard = (urlPath: string | null) => {
+    updateSettings({ selectedDashboardPath: urlPath, selectedViewIndex: 0 });
+    void wsClientRef.current?.setDashboardPath(urlPath);
+  };
+
+  const handleRefreshOverview = () => {
+    void wsClientRef.current?.refreshOverview();
   };
 
   const handleToggleAutostart = async (next: boolean) => {
@@ -710,7 +996,6 @@ export const App: React.FC = () => {
     void resetPillAboveClockNative();
   };
 
-  // Drag libre (fenêtre native sous Tauri, position libre sur la scène en aperçu navigateur)
   const handleDragPointerDown = (e: React.PointerEvent<HTMLElement>) => {
     if (e.button !== 0) return;
     if (nativeTauri) {
@@ -758,15 +1043,16 @@ export const App: React.FC = () => {
     <MiniPill
       status={status}
       previewMode={usingPreview}
-      mediaPlayer={activePlayer}
+      playbackPlayer={resolvedPlaybackTarget}
+      volumeTarget={resolvedVolumeTarget}
       coverUrl={coverUrl}
       favoriteEntities={favoriteEntities}
-      volumeHighlight={volumeHighlight}
+      volumeFeedback={volumeFeedback}
       onExpand={() => setExpanded(true)}
-      onPlayPause={handlePlayPause}
-      onNextTrack={handleNextTrack}
-      onWheelVolume={handleStepVolume}
-      onTriggerFavorite={handleTriggerFavorite}
+      onPlayPause={() => triggerPlayPause(resolvedPlaybackTarget)}
+      onNextTrack={() => triggerNext(resolvedPlaybackTarget)}
+      onWheelVolume={(dir) => stepVolumeOnEntity(resolvedVolumeTarget, dir, true)}
+      onTriggerFavorite={handlePrimaryTileToggle}
       onDragPointerDown={handleDragPointerDown}
     />
   ) : (
@@ -774,20 +1060,20 @@ export const App: React.FC = () => {
       className={`flyout-surface animate-flyout flex flex-col overflow-hidden rounded-flyout text-fluent-ink ${
         nativeTauri
           ? 'h-full w-full'
-          : 'w-[360px] max-w-[calc(100vw-24px)] max-h-[min(640px,calc(100vh-108px))]'
+          : 'max-h-[min(640px,calc(100vh-108px))] w-[360px] max-w-[calc(100vw-24px)]'
       }`}
       role="dialog"
       aria-label="Panneau MyHomeAssistant"
     >
-      {/* Barre supérieure : Poignée de déplacement + État + Replier */}
-      <header className="flex h-10 shrink-0 items-center justify-between border-b border-white/[0.06] px-3">
-        <div className="flex items-center gap-2">
+      {/* Barre supérieure : Poignée + Titre Aperçu + Retour visuel Volume + Replier */}
+      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-white/[0.06] px-3">
+        <div className="flex min-w-0 items-center gap-2">
           {showSettings ? (
             <button
               type="button"
               onClick={() => setShowSettings(false)}
-              aria-label="Retour aux contrôles"
-              className="flex h-7 w-7 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
+              aria-label="Retour à l'Aperçu"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.75} />
             </button>
@@ -797,27 +1083,34 @@ export const App: React.FC = () => {
               onPointerDown={handleDragPointerDown}
               aria-label="Déplacer le panneau"
               title="Glisser pour déplacer"
-              className="flex h-7 w-7 cursor-grab items-center justify-center rounded-control text-fluent-muted transition-colors hover:bg-fluent-elevated hover:text-fluent-ink active:cursor-grabbing"
+              className="flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-control text-fluent-muted transition-colors hover:bg-fluent-elevated hover:text-fluent-ink active:cursor-grabbing"
             >
               <GripHorizontal className="h-4 w-4" strokeWidth={1.75} />
             </button>
           )}
 
-          <h1 className="text-xs font-semibold text-fluent-ink">
-            {showSettings ? 'Paramètres' : 'Maison'}
+          <h1 className="truncate text-xs font-semibold text-fluent-ink">
+            {showSettings
+              ? 'Paramètres'
+              : activeLovelaceConfig?.title || 'Aperçu'}
           </h1>
 
-          {usingPreview ? (
-            <span className="rounded-pill bg-fluent-accent/15 px-2 py-0.5 text-[10px] font-semibold text-fluent-accent">
-              Aperçu
+          {volumeFeedback ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-pill bg-fluent-accent/15 px-2 py-0.5 text-[11px] font-semibold text-fluent-accent tabular-data">
+              <Volume2 className="h-3 w-3" strokeWidth={2} />
+              {volumeFeedback.targetLabel} • {volumeFeedback.valueLabel}
+            </span>
+          ) : usingPreview ? (
+            <span className="rounded-pill bg-fluent-accent/15 px-2 py-0.5 text-[11px] font-semibold text-fluent-accent">
+              Démo
             </span>
           ) : status === 'connected' ? (
-            <span className="inline-flex items-center gap-1 rounded-pill bg-fluent-online/15 px-2 py-0.5 text-[10px] font-semibold text-fluent-online">
+            <span className="inline-flex items-center gap-1 rounded-pill bg-fluent-online/15 px-2 py-0.5 text-[11px] font-semibold text-fluent-online">
               <Wifi className="h-2.5 w-2.5" strokeWidth={2} />
               En ligne
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1 rounded-pill bg-fluent-danger/15 px-2 py-0.5 text-[10px] font-semibold text-fluent-danger">
+            <span className="inline-flex items-center gap-1 rounded-pill bg-fluent-danger/15 px-2 py-0.5 text-[11px] font-semibold text-fluent-danger">
               <WifiOff className="h-2.5 w-2.5" strokeWidth={2} />
               Hors ligne
             </span>
@@ -832,13 +1125,13 @@ export const App: React.FC = () => {
           }}
           aria-label="Replier en pilule"
           title="Replier"
-          className="flex h-7 w-7 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-control text-fluent-secondary transition-colors hover:bg-fluent-elevated hover:text-fluent-ink"
         >
           <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
         </button>
       </header>
 
-      {/* Corps principal : Contrôles ou Paramètres */}
+      {/* Corps principal : Aperçu Home Assistant fidèle ou Paramètres */}
       {showSettings ? (
         <SettingsView
           settings={settings}
@@ -846,11 +1139,15 @@ export const App: React.FC = () => {
           errorDetail={errorDetail}
           hasStoredToken={hasStoredToken}
           allEntities={usingPreview ? PREVIEW_ENTITIES : liveEntities}
+          overviewEntityIds={overviewEntityIds}
+          dashboards={overviewMeta.dashboards}
           autostart={autostart}
           appVersion={appVersion}
           updateStatus={updateStatus}
           onSaveConnection={handleSaveConnection}
           onClearToken={handleClearToken}
+          onSelectDashboard={handleSelectDashboard}
+          onRefreshOverview={handleRefreshOverview}
           onUpdateSettings={updateSettings}
           onToggleAutostart={(next) => void handleToggleAutostart(next)}
           onResetPosition={handleResetPosition}
@@ -876,39 +1173,28 @@ export const App: React.FC = () => {
               onClick={() => updateSettings({ previewMode: true })}
               className="rounded-control bg-fluent-elevated px-3 py-2 text-xs font-medium text-fluent-ink transition-colors hover:bg-fluent-hover"
             >
-              Aperçu
+              Démo
             </button>
           </div>
         </div>
       ) : (
-        <div className="fluent-scroll flex-1 overflow-y-auto">
-          <MediaFlyoutSection
-            players={mediaPlayers}
-            activePlayer={activePlayer}
-            coverUrl={coverUrl}
-            onSelectPlayer={(entityId) => updateSettings({ activeMediaPlayerId: entityId })}
-            onSelectSource={handleSelectSource}
-            onPlayPause={handlePlayPause}
-            onPrev={handlePrevTrack}
-            onNext={handleNextTrack}
-            onVolumeChange={(pct) => handleSetVolumePct(pct, false)}
-            onToggleMute={handleToggleMute}
-          />
-
-          <LightsSection
-            lights={visibleLights}
-            onToggleLight={handleToggleLight}
-            onBrightnessChange={handleLightBrightness}
-            onColorTempChange={handleLightColorTemp}
-            onRgbChange={handleLightRgb}
-          />
-
-          <ScenesSection scenes={visibleScenes} onActivateScene={handleActivateScene} />
-        </div>
+        <LovelaceDashboardView
+          views={views}
+          selectedViewIndex={safeViewIndex}
+          onSelectViewIndex={(idx) => updateSettings({ selectedViewIndex: idx })}
+          badges={currentBadges}
+          sections={currentSections}
+          entities={entitiesMap}
+          volumePlayers={volumeCapablePlayers}
+          volumeTargetMode={settings.volumeTargetMode}
+          resolvedVolumeTarget={resolvedVolumeTarget}
+          onChangeVolumeTargetMode={(mode) => updateSettings({ volumeTargetMode: mode })}
+          actions={tileActions}
+        />
       )}
 
       {/* Pied de Flyout style Windows 11 Quick Settings */}
-      <footer className="flex h-10 shrink-0 items-center justify-between border-t border-white/[0.06] bg-[#181a20]/80 px-3">
+      <footer className="flex h-10 shrink-0 items-center justify-between border-t border-white/[0.06] bg-fluent-base/80 px-3">
         <div className="flex items-center gap-2">
           {usingPreview && !showSettings ? (
             <button
@@ -929,7 +1215,7 @@ export const App: React.FC = () => {
             <button
               type="button"
               onClick={() => void checkAndOptionallyInstallUpdate(true, setUpdateStatus)}
-              className="inline-flex items-center gap-1 rounded-pill bg-fluent-accent px-2 py-0.5 text-[10px] font-semibold text-fluent-accentInk"
+              className="inline-flex items-center gap-1 rounded-pill bg-fluent-accent px-2 py-0.5 text-[11px] font-semibold text-fluent-accentInk"
             >
               <RefreshCw className="h-2.5 w-2.5" strokeWidth={2} />
               MAJ v{updateStatus.version}
@@ -954,24 +1240,21 @@ export const App: React.FC = () => {
     </div>
   );
 
-  // En exécution native Tauri Windows, le widget remplit directement sa fenêtre transparente sans bordure
   if (nativeTauri) {
     return <main className="h-full w-full bg-transparent">{widgetContent}</main>;
   }
 
-  // En aperçu développement Web (127.0.0.1), scène bureau sombre Windows 11 à reflets Mica/Acrylic
   return (
     <main
       style={{
         backgroundImage:
-          'radial-gradient(540px circle at calc(100% - 170px) calc(100% - 280px), rgba(56, 128, 224, 0.24), transparent 72%), radial-gradient(380px circle at calc(100% - 80px) calc(100% - 90px), rgba(139, 92, 246, 0.16), transparent 68%)',
+          'radial-gradient(540px circle at calc(100% - 170px) calc(100% - 280px), rgba(96, 165, 250, 0.22), transparent 72%)',
       }}
-      className="relative min-h-screen w-full overflow-hidden bg-[#0e1015]"
+      className="relative min-h-screen w-full overflow-hidden bg-fluent-stage"
     >
-      {/* Barre d'état de simulation bureau sobre en haut à gauche */}
       <nav
         aria-label="Modes d'affichage"
-        className="fixed left-3 top-3 z-10 flex flex-wrap items-center gap-1.5 rounded-pill bg-[#1c1e24]/90 p-1 border border-white/[0.08]"
+        className="fixed left-3 top-3 z-10 flex flex-wrap items-center gap-1.5 rounded-pill border border-white/[0.08] bg-fluent-base/90 p-1"
       >
         <button
           type="button"
@@ -981,7 +1264,7 @@ export const App: React.FC = () => {
           }}
           className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors ${
             !expanded
-              ? 'bg-fluent-accent text-fluent-accentInk font-semibold'
+              ? 'bg-fluent-accent font-semibold text-fluent-accentInk'
               : 'text-fluent-secondary hover:text-fluent-ink'
           }`}
         >
@@ -995,7 +1278,7 @@ export const App: React.FC = () => {
           }}
           className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors ${
             expanded && !showSettings
-              ? 'bg-fluent-accent text-fluent-accentInk font-semibold'
+              ? 'bg-fluent-accent font-semibold text-fluent-accentInk'
               : 'text-fluent-secondary hover:text-fluent-ink'
           }`}
         >
@@ -1009,7 +1292,7 @@ export const App: React.FC = () => {
           }}
           className={`rounded-pill px-3 py-1 text-xs font-medium transition-colors ${
             expanded && showSettings
-              ? 'bg-fluent-accent text-fluent-accentInk font-semibold'
+              ? 'bg-fluent-accent font-semibold text-fluent-accentInk'
               : 'text-fluent-secondary hover:text-fluent-ink'
           }`}
         >
@@ -1017,7 +1300,6 @@ export const App: React.FC = () => {
         </button>
       </nav>
 
-      {/* Zone d'ancrage au-dessus de l'horloge (déplaçable librement à la souris) */}
       <div
         style={{
           right: `${browserOffset?.x ?? 16}px`,
@@ -1028,10 +1310,9 @@ export const App: React.FC = () => {
         {widgetContent}
       </div>
 
-      {/* Repère discret de barre des tâches Windows 11 en bas d'écran */}
       <div
         aria-hidden="true"
-        className="fixed inset-x-0 bottom-0 z-10 flex h-10 items-center justify-end border-t border-white/[0.06] bg-[#14161c]/95 px-4 text-xs text-fluent-secondary tabular-data"
+        className="fixed inset-x-0 bottom-0 z-10 flex h-10 items-center justify-end border-t border-white/[0.06] bg-fluent-stage/95 px-4 text-xs text-fluent-secondary tabular-data"
       >
         <span>FRA &nbsp; 19:42</span>
       </div>
