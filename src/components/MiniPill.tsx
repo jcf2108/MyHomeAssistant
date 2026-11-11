@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   ChevronUp,
   Disc3,
@@ -13,12 +13,14 @@ import {
 import type { HaConnectionStatus, HaEntity, VolumeFeedbackBadge } from '../types/ha';
 import { shortEntityLabel } from '../utils/color';
 import { getHaTileAccentColor, renderHaEntityIcon } from '../utils/haIcons';
+import { supportsVolumeSet } from '../utils/mediaRouting';
 
 interface MiniPillProps {
   status: HaConnectionStatus;
   previewMode: boolean;
   playbackPlayer: HaEntity | null;
   volumeTarget: HaEntity | null;
+  unreliableVolumeIds: ReadonlySet<string>;
   coverUrl: string | null;
   favoriteEntities: HaEntity[];
   volumeFeedback: VolumeFeedbackBadge | null;
@@ -35,6 +37,7 @@ export const MiniPill: React.FC<MiniPillProps> = ({
   previewMode,
   playbackPlayer,
   volumeTarget,
+  unreliableVolumeIds,
   coverUrl,
   favoriteEntities,
   volumeFeedback,
@@ -46,13 +49,18 @@ export const MiniPill: React.FC<MiniPillProps> = ({
   onDragPointerDown,
 }) => {
   const [forceFavorites, setForceFavorites] = useState(false);
+  const lastWheelAtRef = useRef<number>(0);
 
   const isPlaying = playbackPlayer?.state === 'playing';
   const showMediaView = Boolean(playbackPlayer && isPlaying && !forceFavorites);
 
   const volSource = volumeTarget || playbackPlayer;
-  const hasNumericVol = typeof volSource?.attributes.volume_level === 'number';
-  const currentVolumePct = hasNumericVol
+  const hasRealNumericVol =
+    Boolean(volSource) &&
+    typeof volSource!.attributes.volume_level === 'number' &&
+    supportsVolumeSet(volSource!) &&
+    !unreliableVolumeIds.has(volSource!.entity_id);
+  const currentVolumePct = hasRealNumericVol
     ? Math.round((volSource!.attributes.volume_level as number) * 100)
     : null;
   const isMuted = Boolean(volSource?.attributes.is_volume_muted);
@@ -65,6 +73,9 @@ export const MiniPill: React.FC<MiniPillProps> = ({
     if (!volSource) return;
     e.preventDefault();
     e.stopPropagation();
+    const now = Date.now();
+    if (now - lastWheelAtRef.current < 55) return;
+    lastWheelAtRef.current = now;
     onWheelVolume(e.deltaY < 0 ? 'up' : 'down');
   };
 
@@ -95,7 +106,7 @@ export const MiniPill: React.FC<MiniPillProps> = ({
       </button>
 
       {volumeFeedback ? (
-        /* Retour visuel direct lors d'un réglage de volume (affiche quel appareil Télé/Ampli répond) */
+        /* Retour visuel direct lors d'un réglage de volume (affiche la vraie valeur remontée par HA) */
         <button
           type="button"
           onClick={onExpand}
@@ -144,14 +155,14 @@ export const MiniPill: React.FC<MiniPillProps> = ({
                     shortEntityLabel(playbackPlayer, 2),
                 )}
               </span>
-              {volSource && (
+              {volSource && (isMuted || currentVolumePct !== null) && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 tabular-data text-fluent-secondary">
                   {isMuted ? (
                     <VolumeX className="h-3 w-3 text-fluent-danger" strokeWidth={1.75} />
                   ) : (
                     <Volume2 className="h-3 w-3" strokeWidth={1.75} />
                   )}
-                  {isMuted ? '0%' : currentVolumePct !== null ? `${currentVolumePct}%` : ''}
+                  {isMuted ? '0%' : `${currentVolumePct}%`}
                 </span>
               )}
             </span>

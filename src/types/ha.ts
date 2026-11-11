@@ -190,6 +190,8 @@ export interface HaOverviewMetadata {
   deviceRegistry: Record<string, HaDeviceRegistryEntry>;
 }
 
+export type DashboardDisplayMode = 'embedded' | 'tiles';
+
 export interface AppSettings {
   haUrl: string;
   /** 'auto' (Ampli actif > Télé active > Lecteur actif) ou entity_id explicite */
@@ -197,6 +199,8 @@ export interface AppSettings {
   activeMediaPlayerId: string;
   selectedDashboardPath: string | null;
   selectedViewIndex: number;
+  dashboardDisplayMode: DashboardDisplayMode;
+  hideHaHeader: boolean;
   enabledMediaPlayers: string[];
   enabledLights: string[];
   enabledScenes: string[];

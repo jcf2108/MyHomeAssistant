@@ -1,6 +1,6 @@
 [package]
 name = "my-home-assistant"
-version = "0.2.0"
+version = "0.3.0"
 description = "Compagnon Home Assistant léger pour Windows 11"
 authors = ["jcf2108"]
 license = "MIT"
@@ -15,7 +15,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.2", features = ["tray-icon"] }
+tauri = { version = "2.2", features = ["tray-icon", "unstable"] }
 tauri-plugin-updater = { version = "2.5", default-features = false, features = ["native-tls", "system-proxy"] }
 tauri-plugin-process = "2.2"
 tauri-plugin-autostart = "2.2"

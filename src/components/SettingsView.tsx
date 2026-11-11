@@ -459,7 +459,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-medium text-fluent-ink">Pas volume (%)</span>
+              <span className="text-xs font-medium text-fluent-ink">Pas curseur (%)</span>
               <div className="relative inline-flex items-center">
                 <select
                   aria-label="Pas de réglage du volume"
@@ -467,14 +467,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onChange={(e) => onUpdateSettings({ volumeStepPct: Number(e.target.value) })}
                   className="appearance-none rounded-control border border-white/[0.08] bg-fluent-elevated py-1 pl-2.5 pr-7 text-xs text-fluent-ink tabular-data transition-colors hover:bg-fluent-hover focus:outline-none"
                 >
+                  <option value={1} className="bg-fluent-base">
+                    1%
+                  </option>
                   <option value={2} className="bg-fluent-base">
                     2%
                   </option>
-                  <option value={4} className="bg-fluent-base">
-                    4%
-                  </option>
-                  <option value={8} className="bg-fluent-base">
-                    8%
+                  <option value={5} className="bg-fluent-base">
+                    5%
                   </option>
                 </select>
                 <ChevronDown

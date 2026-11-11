@@ -1,7 +1,9 @@
 mod credentials;
+mod lovelace_view;
 mod media_hook;
 mod window_ctl;
 
+use lovelace_view::LovelaceWebviewState;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -11,6 +13,7 @@ use window_ctl::WindowGeometryState;
 pub fn run() {
     tauri::Builder::default()
         .manage(WindowGeometryState::default())
+        .manage(LovelaceWebviewState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
@@ -20,7 +23,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle().clone();
 
-            if let Some(main_win) = app.get_webview_window("main") {
+            if let Some(main_win) = app.get_window("main") {
                 window_ctl::apply_initial_window_placement(&handle, &main_win);
             }
 
@@ -49,7 +52,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app_handle, event| match event.id.as_ref() {
                     "toggle" => {
-                        if let Some(w) = app_handle.get_webview_window("main") {
+                        if let Some(w) = app_handle.get_window("main") {
                             let _ = w.show();
                         }
                         let _ = app_handle.emit("tray-action", "toggle_expand");
@@ -59,7 +62,7 @@ pub fn run() {
                         let _ = app_handle.emit("tray-action", "reset_position");
                     }
                     "settings" => {
-                        if let Some(w) = app_handle.get_webview_window("main") {
+                        if let Some(w) = app_handle.get_window("main") {
                             let _ = w.show();
                         }
                         let _ = app_handle.emit("tray-action", "open_settings");
@@ -77,7 +80,7 @@ pub fn run() {
                     } = event
                     {
                         let app_handle = tray.app_handle();
-                        if let Some(w) = app_handle.get_webview_window("main") {
+                        if let Some(w) = app_handle.get_window("main") {
                             let _ = w.show();
                         }
                         let _ = app_handle.emit("tray-action", "toggle_expand");
@@ -98,6 +101,9 @@ pub fn run() {
             credentials::save_ha_token,
             credentials::get_ha_token,
             credentials::delete_ha_token,
+            lovelace_view::sync_lovelace_webview,
+            lovelace_view::reload_lovelace_webview,
+            lovelace_view::clear_lovelace_session,
             media_hook::set_pc_grace_seconds,
             window_ctl::set_widget_expanded,
             window_ctl::set_window_focusable,

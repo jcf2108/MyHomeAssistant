@@ -3,6 +3,7 @@
   "identifier": "default",
   "description": "Permissions natives pour MyHomeAssistant",
   "windows": ["main"],
+  "webviews": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",

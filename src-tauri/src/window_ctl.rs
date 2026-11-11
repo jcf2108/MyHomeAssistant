@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, Size, Position, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, PhysicalPosition, Position, Size, Window};
 
 pub const PILL_WIDTH: f64 = 316.0;
 pub const PILL_HEIGHT: f64 = 52.0;
-pub const FLYOUT_WIDTH: f64 = 360.0;
-pub const FLYOUT_HEIGHT: f64 = 610.0;
+pub const FLYOUT_WIDTH: f64 = 420.0;
+pub const FLYOUT_HEIGHT: f64 = 680.0;
 const EDGE_MARGIN: i32 = 12;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -135,17 +135,22 @@ pub fn compute_above_clock_position(scale: f64) -> SavedPillPosition {
     }
 }
 
-pub fn apply_initial_window_placement(app: &AppHandle, win: &WebviewWindow) {
+pub fn apply_initial_window_placement(app: &AppHandle, win: &Window) {
     let scale = win.scale_factor().unwrap_or(1.0);
-    let initial = load_persisted_position(app).unwrap_or_else(|| compute_above_clock_position(scale));
+    let initial =
+        load_persisted_position(app).unwrap_or_else(|| compute_above_clock_position(scale));
 
     // Vérifie que la position sauvegardée est bien dans une zone d'écran valide
     let work = get_work_area_near(Some((initial.x, initial.y)));
     let phys_w = (PILL_WIDTH * scale).round() as i32;
     let phys_h = (PILL_HEIGHT * scale).round() as i32;
     let clamped = SavedPillPosition {
-        x: initial.x.clamp(work.left + 4, (work.right - phys_w - 4).max(work.left + 4)),
-        y: initial.y.clamp(work.top + 4, (work.bottom - phys_h - 4).max(work.top + 4)),
+        x: initial
+            .x
+            .clamp(work.left + 4, (work.right - phys_w - 4).max(work.left + 4)),
+        y: initial
+            .y
+            .clamp(work.top + 4, (work.bottom - phys_h - 4).max(work.top + 4)),
     };
 
     if let Some(state) = app.try_state::<WindowGeometryState>() {
@@ -163,7 +168,7 @@ pub fn apply_initial_window_placement(app: &AppHandle, win: &WebviewWindow) {
 }
 
 #[cfg(windows)]
-pub fn suppress_dwm_frame_artifacts(win: &WebviewWindow) {
+pub fn suppress_dwm_frame_artifacts(win: &Window) {
     use std::ffi::c_void;
     use std::mem::size_of;
     use windows::Win32::Foundation::HWND;
@@ -177,7 +182,6 @@ pub fn suppress_dwm_frame_artifacts(win: &WebviewWindow) {
         let hwnd = HWND(raw_hwnd.0);
         unsafe {
             // Supprime l'ombre et la bordure rectangulaire DWM Windows 11 autour du HWND transparent
-            // (tao conserve WS_CAPTION même avec shadow:false, ce qui active l'ombre 8px de Windows 11).
             let ncrp = DWMNCRP_DISABLED;
             let _ = DwmSetWindowAttribute(
                 hwnd,
@@ -211,10 +215,10 @@ pub fn suppress_dwm_frame_artifacts(win: &WebviewWindow) {
 }
 
 #[cfg(not(windows))]
-pub fn suppress_dwm_frame_artifacts(_win: &WebviewWindow) {}
+pub fn suppress_dwm_frame_artifacts(_win: &Window) {}
 
 #[cfg(windows)]
-pub fn apply_win32_toolwindow_styles(win: &WebviewWindow, focusable: bool) {
+pub fn apply_win32_toolwindow_styles(win: &Window, focusable: bool) {
     use windows::Win32::Foundation::HWND;
     use windows::Win32::UI::WindowsAndMessaging::{
         GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE, SWP_FRAMECHANGED,
@@ -250,11 +254,11 @@ pub fn apply_win32_toolwindow_styles(win: &WebviewWindow, focusable: bool) {
 }
 
 #[cfg(not(windows))]
-pub fn apply_win32_toolwindow_styles(_win: &WebviewWindow, _focusable: bool) {}
+pub fn apply_win32_toolwindow_styles(_win: &Window, _focusable: bool) {}
 
 #[tauri::command]
 pub fn set_window_focusable(app: AppHandle, focusable: bool) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("main") {
+    if let Some(win) = app.get_window("main") {
         apply_win32_toolwindow_styles(&win, focusable);
         if focusable {
             let _ = win.set_focus();
@@ -265,7 +269,7 @@ pub fn set_window_focusable(app: AppHandle, focusable: bool) -> Result<(), Strin
 
 #[tauri::command]
 pub fn record_pill_position(app: AppHandle) -> Result<(), String> {
-    let Some(win) = app.get_webview_window("main") else {
+    let Some(win) = app.get_window("main") else {
         return Ok(());
     };
     let Some(state) = app.try_state::<WindowGeometryState>() else {
@@ -279,8 +283,13 @@ pub fn record_pill_position(app: AppHandle) -> Result<(), String> {
             let work = get_work_area_near(Some((pos.x, pos.y)));
             let pill_w = (PILL_WIDTH * scale).round() as i32;
             let pill_h = (PILL_HEIGHT * scale).round() as i32;
-            let flyout_w = (FLYOUT_WIDTH * scale).round() as i32;
-            let flyout_h = (FLYOUT_HEIGHT * scale).round() as i32;
+            let actual_size = win.outer_size().ok();
+            let flyout_w = actual_size
+                .map(|s| s.width as i32)
+                .unwrap_or_else(|| (FLYOUT_WIDTH * scale).round() as i32);
+            let flyout_h = actual_size
+                .map(|s| s.height as i32)
+                .unwrap_or_else(|| (FLYOUT_HEIGHT * scale).round() as i32);
             let mid_y = (work.top + work.bottom) / 2;
             let py = if pos.y + flyout_h / 2 >= mid_y {
                 pos.y + flyout_h - pill_h
@@ -303,7 +312,7 @@ pub fn record_pill_position(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn reset_pill_above_clock(app: AppHandle) -> Result<(), String> {
-    let Some(win) = app.get_webview_window("main") else {
+    let Some(win) = app.get_window("main") else {
         return Ok(());
     };
     let scale = win.scale_factor().unwrap_or(1.0);
@@ -322,7 +331,7 @@ pub fn reset_pill_above_clock(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String> {
-    let Some(win) = app.get_webview_window("main") else {
+    let Some(win) = app.get_window("main") else {
         return Ok(());
     };
     let scale = win.scale_factor().unwrap_or(1.0);
@@ -343,6 +352,8 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
     }
 
     if !expanded {
+        // Masque immédiatement la sous-vue Lovelace avant réduction en pilule
+        crate::lovelace_view::hide_lovelace_webview_sync(&app);
         let _ = win.set_size(Size::Logical(LogicalSize::new(PILL_WIDTH, PILL_HEIGHT)));
         let _ = win.set_position(Position::Physical(PhysicalPosition::new(
             anchor.x, anchor.y,
@@ -354,8 +365,10 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
     let work = get_work_area_near(Some((anchor.x, anchor.y)));
     let pill_w = (PILL_WIDTH * scale).round() as i32;
     let pill_h = (PILL_HEIGHT * scale).round() as i32;
-    let fly_w = (FLYOUT_WIDTH * scale).round() as i32;
-    let available_h = (work.bottom - work.top - EDGE_MARGIN * 2).max(360);
+    let available_w = (work.right - work.left - EDGE_MARGIN * 2).max(340);
+    let fly_w = ((FLYOUT_WIDTH * scale).round() as i32).min(available_w);
+    let logical_fly_w = (fly_w as f64) / scale;
+    let available_h = (work.bottom - work.top - EDGE_MARGIN * 2).max(380);
     let fly_h = ((FLYOUT_HEIGHT * scale).round() as i32).min(available_h);
     let logical_fly_h = (fly_h as f64) / scale;
 
@@ -386,13 +399,14 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
     );
 
     let _ = win.set_size(Size::Logical(LogicalSize::new(
-        FLYOUT_WIDTH,
+        logical_fly_w,
         logical_fly_h,
     )));
     let _ = win.set_position(Position::Physical(PhysicalPosition::new(
         clamped_x, clamped_y,
     )));
+    apply_win32_toolwindow_styles(&win, true);
     let _ = win.show();
-    suppress_dwm_frame_artifacts(&win);
+    let _ = win.set_focus();
     Ok(())
 }
