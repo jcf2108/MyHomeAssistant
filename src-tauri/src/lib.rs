@@ -1,8 +1,10 @@
+mod autostart;
 mod credentials;
 mod media_hook;
 mod window_ctl;
 
-use tauri::menu::{Menu, MenuItem};
+use autostart::AutostartTrayState;
+use tauri::menu::{CheckMenuItem, Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 use window_ctl::WindowGeometryState;
@@ -11,14 +13,12 @@ use window_ctl::WindowGeometryState;
 pub fn run() {
     tauri::Builder::default()
         .manage(WindowGeometryState::default())
+        .manage(AutostartTrayState::default())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
         .setup(|app| {
             let handle = app.handle().clone();
+            let initial_autostart = autostart::initialize_autostart_on_boot(&handle);
 
             if let Some(main_win) = app.get_window("main") {
                 window_ctl::apply_initial_window_placement(&handle, &main_win);
@@ -53,13 +53,32 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let item_autostart = CheckMenuItem::with_id(
+                app,
+                "autostart",
+                "Lancer au démarrage",
+                true,
+                initial_autostart,
+                None::<&str>,
+            )?;
+            if let Some(tray_state) = app.try_state::<AutostartTrayState>() {
+                if let Ok(mut guard) = tray_state.0.lock() {
+                    *guard = Some(item_autostart.clone());
+                }
+            }
             let item_settings =
                 MenuItem::with_id(app, "settings", "Paramètres", true, None::<&str>)?;
             let item_quit = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
 
             let tray_menu = Menu::with_items(
                 app,
-                &[&item_toggle, &item_reset, &item_settings, &item_quit],
+                &[
+                    &item_toggle,
+                    &item_reset,
+                    &item_autostart,
+                    &item_settings,
+                    &item_quit,
+                ],
             )?;
 
             let mut tray_builder = TrayIconBuilder::new()
@@ -76,6 +95,10 @@ pub fn run() {
                     "reset_pos" => {
                         let _ = window_ctl::reset_pill_above_clock(app_handle.clone());
                         let _ = app_handle.emit("tray-action", "reset_position");
+                    }
+                    "autostart" => {
+                        let next = !autostart::get_autostart_status();
+                        let _ = autostart::apply_and_broadcast_autostart(app_handle, next);
                     }
                     "settings" => {
                         if let Some(w) = app_handle.get_window("main") {
@@ -114,6 +137,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            autostart::get_autostart_status,
+            autostart::set_autostart_status,
             credentials::save_ha_token,
             credentials::get_ha_token,
             credentials::delete_ha_token,

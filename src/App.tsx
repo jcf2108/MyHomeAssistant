@@ -1131,6 +1131,7 @@ export const App: React.FC = () => {
     void subscribeNativeEvents(
       (cmd) => keyActionRef.current(cmd),
       (act) => trayActionRef.current(act),
+      (enabled) => setAutostart(enabled),
     ).then((unsub) => {
       cleanup = unsub;
     });

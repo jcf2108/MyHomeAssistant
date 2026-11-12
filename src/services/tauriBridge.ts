@@ -97,10 +97,10 @@ export async function getAppVersion(): Promise<string> {
 }
 
 export async function getAutostartEnabled(): Promise<boolean> {
-  if (!isTauriRuntime()) return false;
+  if (!isTauriRuntime()) return true;
   try {
-    const { isEnabled } = await import('@tauri-apps/plugin-autostart');
-    return await isEnabled();
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<boolean>('get_autostart_status');
   } catch {
     return false;
   }
@@ -109,13 +109,8 @@ export async function getAutostartEnabled(): Promise<boolean> {
 export async function setAutostartEnabled(enabled: boolean): Promise<boolean> {
   if (!isTauriRuntime()) return enabled;
   try {
-    const { enable, disable, isEnabled } = await import('@tauri-apps/plugin-autostart');
-    if (enabled) {
-      await enable();
-    } else {
-      await disable();
-    }
-    return await isEnabled();
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<boolean>('set_autostart_status', { enabled });
   } catch {
     return false;
   }
@@ -179,6 +174,7 @@ export async function checkAndOptionallyInstallUpdate(
 export async function subscribeNativeEvents(
   onKeyCommand: (cmd: NativeKeyCommand) => void,
   onTrayAction: (action: TrayAction) => void,
+  onAutostartChanged?: (enabled: boolean) => void,
 ): Promise<() => void> {
   if (isTauriRuntime()) {
     const { listen } = await import('@tauri-apps/api/event');
@@ -188,9 +184,13 @@ export async function subscribeNativeEvents(
     const unlistenTray = await listen<TrayAction>('tray-action', (event) => {
       onTrayAction(event.payload);
     });
+    const unlistenAutostart = await listen<boolean>('autostart-changed', (event) => {
+      onAutostartChanged?.(Boolean(event.payload));
+    });
     return () => {
       unlistenKey();
       unlistenTray();
+      unlistenAutostart();
     };
   }
 
