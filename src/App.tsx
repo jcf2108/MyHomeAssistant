@@ -63,12 +63,21 @@ import {
   supportsVolumeSet,
   supportsVolumeStep,
 } from './utils/mediaRouting';
+import {
+  computeCalibrationFromObservedValue,
+  displayVolumeToRawLevel,
+  formatDisplayVolume,
+  getEntityVolumeCalibration,
+  isDefaultVolumeCalibration,
+  rawLevelToDisplayVolume,
+} from './utils/volumeScale';
 
 const SETTINGS_STORAGE_KEY = 'mha_settings_v2';
 
 const DEFAULT_SETTINGS: AppSettings = {
   haUrl: '',
   volumeTargetMode: 'auto',
+  volumeScales: {},
   activeMediaPlayerId: '',
   selectedDashboardPath: null,
   selectedViewIndex: 0,
@@ -89,7 +98,7 @@ interface ActiveVolumeToast {
   direction?: 'up' | 'down';
   baselineLevel: number | null;
   observedChange: boolean;
-  explicitPct?: number;
+  explicitRawLevel?: number;
   muted?: boolean;
   triggeredAt: number;
 }
@@ -105,10 +114,17 @@ function loadSavedSettings(): AppSettings {
       typeof parsed.volumeStepPct === 'number' && validSteps.includes(parsed.volumeStepPct)
         ? parsed.volumeStepPct
         : 2;
+    const volumeScales =
+      parsed.volumeScales &&
+      typeof parsed.volumeScales === 'object' &&
+      !Array.isArray(parsed.volumeScales)
+        ? parsed.volumeScales
+        : {};
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
       volumeTargetMode: parsed.volumeTargetMode || 'auto',
+      volumeScales,
       selectedDashboardPath: parsed.selectedDashboardPath ?? null,
       selectedViewIndex: parsed.selectedViewIndex ?? 0,
       volumeStepPct: stepPct,
@@ -267,6 +283,9 @@ export const App: React.FC = () => {
           setActiveVolumeToast((prevToast) => {
             if (!prevToast || prevToast.mode !== 'step') return prevToast;
             if (Date.now() - prevToast.triggeredAt > 1500) return prevToast;
+            if (prevToast.entityId !== entity.entity_id && prevToast.observedChange) {
+              return prevToast;
+            }
             return {
               ...prevToast,
               entityId: entity.entity_id,
@@ -432,20 +451,25 @@ export const App: React.FC = () => {
     );
   }, [resolvedPlaybackTarget, settings.haUrl]);
 
-  // Calcul réactif 100 % fidèle du badge de volume à partir de la vraie valeur remontée par Home Assistant
+  // Calcul réactif 100 % fidèle du badge de volume à partir de la vraie valeur remontée par Home Assistant (+ étalonnage TV/Ampli)
   const volumeFeedback = useMemo<VolumeFeedbackBadge | null>(() => {
     if (!activeVolumeToast) return null;
     const liveEntity = entitiesMap[activeVolumeToast.entityId];
     const targetLabel =
       liveEntity?.attributes.friendly_name ||
       (liveEntity ? shortEntityLabel(liveEntity, 2) : activeVolumeToast.targetLabel);
+    const cal = getEntityVolumeCalibration(
+      activeVolumeToast.entityId,
+      settings.volumeScales,
+    );
 
     if (activeVolumeToast.mode === 'set') {
-      const pct = activeVolumeToast.explicitPct ?? 0;
+      const raw = Math.max(0, Math.min(1, activeVolumeToast.explicitRawLevel ?? 0));
+      const displayVal = rawLevelToDisplayVolume(raw, cal);
       return {
         targetLabel,
-        valueLabel: `${pct}%`,
-        pct,
+        valueLabel: formatDisplayVolume(displayVal, cal),
+        pct: Math.round(raw * 100),
       };
     }
 
@@ -453,19 +477,23 @@ export const App: React.FC = () => {
       const isMuted = liveEntity
         ? Boolean(liveEntity.attributes.is_volume_muted)
         : Boolean(activeVolumeToast.muted);
-      const livePct =
+      const raw =
         typeof liveEntity?.attributes.volume_level === 'number' &&
         !unreliableVolumeIds.has(activeVolumeToast.entityId)
-          ? Math.round(liveEntity.attributes.volume_level * 100)
+          ? Math.max(0, Math.min(1, liveEntity.attributes.volume_level))
           : null;
       return {
         targetLabel,
-        valueLabel: isMuted ? 'Muet' : livePct !== null ? `${livePct}%` : 'Son actif',
-        pct: isMuted ? 0 : livePct,
+        valueLabel: isMuted
+          ? 'Muet'
+          : raw !== null
+            ? formatDisplayVolume(rawLevelToDisplayVolume(raw, cal), cal)
+            : 'Son actif',
+        pct: isMuted ? 0 : raw !== null ? Math.round(raw * 100) : null,
       };
     }
 
-    // Mode 'step' (volume_up / volume_down) : aucun ajout synthétique (+/-4%), lecture directe de HA !
+    // Mode 'step' (volume_up / volume_down) : aucun ajout synthétique (+/-4%), lecture directe de HA + échelle réelle !
     const liveVol =
       typeof liveEntity?.attributes.volume_level === 'number'
         ? liveEntity.attributes.volume_level
@@ -487,11 +515,12 @@ export const App: React.FC = () => {
       activeVolumeToast.observedChange;
 
     if (liveVol !== null && (changedFromBaseline || atCeiling || atRealFloor)) {
-      const exactPct = Math.round(liveVol * 100);
+      const clampedRaw = Math.max(0, Math.min(1, liveVol));
+      const displayVal = rawLevelToDisplayVolume(clampedRaw, cal);
       return {
         targetLabel,
-        valueLabel: `${exactPct}%`,
-        pct: exactPct,
+        valueLabel: formatDisplayVolume(displayVal, cal),
+        pct: Math.round(clampedRaw * 100),
       };
     }
 
@@ -500,7 +529,7 @@ export const App: React.FC = () => {
       valueLabel: activeVolumeToast.direction === 'up' ? 'Vol +' : 'Vol −',
       pct: null,
     };
-  }, [activeVolumeToast, entitiesMap, unreliableVolumeIds]);
+  }, [activeVolumeToast, entitiesMap, settings.volumeScales, unreliableVolumeIds]);
 
   const scheduleToastReset = useCallback(() => {
     if (volumeBadgeTimerRef.current !== null) {
@@ -539,10 +568,55 @@ export const App: React.FC = () => {
     [usingPreview],
   );
 
-  // --- Réglage matériel du Volume (compatible Ampli AVR, Sonos, TV HDMI-CEC/ARC/IR/WebOS/Samsung) ---
-  const setVolumePctOnEntity = useCallback(
-    (target: HaEntity, pct: number, showFeedback = false) => {
-      const clamped = Math.max(0, Math.min(100, Math.round(pct)));
+  // --- Étalonnage d'échelle & Réglage matériel du Volume (Ampli AVR, Sonos, TV HDMI-CEC/ARC/IR/WebOS/Samsung) ---
+  const handleCalibrateVolume = useCallback(
+    (entity: HaEntity, rawInput: string): boolean => {
+      const rawLevel =
+        typeof entity.attributes.volume_level === 'number' &&
+        !unreliableVolumeIds.has(entity.entity_id)
+          ? entity.attributes.volume_level
+          : null;
+      const computed = computeCalibrationFromObservedValue(rawLevel, rawInput);
+      if (!computed) return false;
+
+      setSettings((prev) => {
+        const nextScales = { ...prev.volumeScales };
+        if (isDefaultVolumeCalibration(computed)) {
+          delete nextScales[entity.entity_id];
+        } else {
+          nextScales[entity.entity_id] = computed;
+        }
+        const next = { ...prev, volumeScales: nextScales };
+        try {
+          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // ignore storage quota errors
+        }
+        return next;
+      });
+      return true;
+    },
+    [unreliableVolumeIds],
+  );
+
+  const handleResetVolumeCalibration = useCallback((entityId: string) => {
+    setSettings((prev) => {
+      if (!prev.volumeScales[entityId]) return prev;
+      const nextScales = { ...prev.volumeScales };
+      delete nextScales[entityId];
+      const next = { ...prev, volumeScales: nextScales };
+      try {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage quota errors
+      }
+      return next;
+    });
+  }, []);
+
+  const setVolumeRawOnEntity = useCallback(
+    (target: HaEntity, rawLevel: number, showFeedback = false) => {
+      const clampedRaw = Number(Math.max(0, Math.min(1, rawLevel)).toFixed(4));
       const label = target.attributes.friendly_name || shortEntityLabel(target, 2);
 
       if (showFeedback) {
@@ -555,7 +629,7 @@ export const App: React.FC = () => {
               ? target.attributes.volume_level
               : null,
           observedChange: true,
-          explicitPct: clamped,
+          explicitRawLevel: clampedRaw,
           triggeredAt: Date.now(),
         });
         scheduleToastReset();
@@ -566,8 +640,8 @@ export const App: React.FC = () => {
           ...cur,
           attributes: {
             ...cur.attributes,
-            volume_level: clamped / 100,
-            is_volume_muted: clamped === 0,
+            volume_level: clampedRaw,
+            is_volume_muted: clampedRaw === 0,
           },
         }));
       }
@@ -578,7 +652,7 @@ export const App: React.FC = () => {
           await wsClientRef.current?.callService(
             'media_player',
             'volume_set',
-            { volume_level: clamped / 100 },
+            { volume_level: clampedRaw },
             { entity_id: targetId },
           );
         });
@@ -597,17 +671,20 @@ export const App: React.FC = () => {
           : null;
       const canSet = supportsVolumeSet(target) && rawLevel !== null;
       const canStep = supportsVolumeStep(target);
+      const cal = getEntityVolumeCalibration(target.entity_id, settings.volumeScales);
 
       if (usingPreview) {
-        const cur = rawLevel !== null ? Math.round(rawLevel * 100) : 40;
-        const next = Math.max(
-          0,
-          Math.min(
-            100,
-            cur + (direction === 'up' ? settings.volumeStepPct : -settings.volumeStepPct),
-          ),
+        const curDisplay = rawLevelToDisplayVolume(rawLevel ?? 0.4, cal);
+        const stepUnits = Math.max(
+          1,
+          Math.round((settings.volumeStepPct / 100) * cal.scale),
         );
-        setVolumePctOnEntity(target, next, showFeedback);
+        const nextDisplay = curDisplay + (direction === 'up' ? stepUnits : -stepUnits);
+        setVolumeRawOnEntity(
+          target,
+          displayVolumeToRawLevel(nextDisplay, cal),
+          showFeedback,
+        );
         return;
       }
 
@@ -661,13 +738,22 @@ export const App: React.FC = () => {
       }
 
       // Enceintes supportant exclusivement volume_set (sans volume_up/volume_down)
-      const currentPct = Math.round((rawLevel as number) * 100);
-      const delta = direction === 'up' ? settings.volumeStepPct : -settings.volumeStepPct;
-      setVolumePctOnEntity(target, currentPct + delta, showFeedback);
+      const curDisplay = rawLevelToDisplayVolume(rawLevel as number, cal);
+      const stepUnits = Math.max(
+        1,
+        Math.round((settings.volumeStepPct / 100) * cal.scale),
+      );
+      const nextDisplay = curDisplay + (direction === 'up' ? stepUnits : -stepUnits);
+      setVolumeRawOnEntity(
+        target,
+        displayVolumeToRawLevel(nextDisplay, cal),
+        showFeedback,
+      );
     },
     [
       scheduleToastReset,
-      setVolumePctOnEntity,
+      setVolumeRawOnEntity,
+      settings.volumeScales,
       settings.volumeStepPct,
       usingPreview,
     ],
@@ -883,6 +969,8 @@ export const App: React.FC = () => {
   const tileActions = useMemo<HaTileActions>(
     () => ({
       haBaseUrl: settings.haUrl,
+      volumeScales: settings.volumeScales,
+      unreliableVolumeIds,
       onPrimaryToggle: handlePrimaryTileToggle,
       onLightBrightness: (entityId, pct) => {
         const clamped = Math.max(0, Math.min(100, Math.round(pct)));
@@ -962,7 +1050,8 @@ export const App: React.FC = () => {
             .catch(() => {});
         }
       },
-      onMediaVolumeSet: (entity, pct) => setVolumePctOnEntity(entity, pct, false),
+      onMediaVolumeSetRaw: (entity, rawLevel) =>
+        setVolumeRawOnEntity(entity, rawLevel, false),
       onMediaVolumeStep: (entity, direction) => stepVolumeOnEntity(entity, direction, true),
       onMediaMuteToggle: (entity) => toggleMuteOnEntity(entity),
       onMediaSelectSource: (entity, source) => {
@@ -981,6 +1070,8 @@ export const App: React.FC = () => {
             .catch(() => {});
         }
       },
+      onCalibrateVolume: handleCalibrateVolume,
+      onResetVolumeCalibration: handleResetVolumeCalibration,
       onCoverCommand: (entityId, cmd) => {
         if (usingPreview) {
           applyEntityOptimistic(entityId, (cur) => ({
@@ -1072,15 +1163,19 @@ export const App: React.FC = () => {
     }),
     [
       applyEntityOptimistic,
+      handleCalibrateVolume,
       handlePrimaryTileToggle,
+      handleResetVolumeCalibration,
       runThrottledService,
-      setVolumePctOnEntity,
+      setVolumeRawOnEntity,
       settings.haUrl,
+      settings.volumeScales,
       stepVolumeOnEntity,
       toggleMuteOnEntity,
       triggerNext,
       triggerPlayPause,
       triggerPrev,
+      unreliableVolumeIds,
       usingPreview,
     ],
   );
@@ -1289,6 +1384,7 @@ export const App: React.FC = () => {
       playbackPlayer={resolvedPlaybackTarget}
       volumeTarget={resolvedVolumeTarget}
       unreliableVolumeIds={unreliableVolumeIds}
+      volumeScales={settings.volumeScales}
       coverUrl={coverUrl}
       favoriteEntities={favoriteEntities}
       volumeFeedback={volumeFeedback}
@@ -1397,9 +1493,10 @@ export const App: React.FC = () => {
           status={status}
           errorDetail={errorDetail}
           hasStoredToken={hasStoredToken}
-          allEntities={usingPreview ? PREVIEW_ENTITIES : liveEntities}
+          allEntities={entitiesMap}
           overviewEntityIds={overviewEntityIds}
           dashboards={overviewMeta.dashboards}
+          unreliableVolumeIds={unreliableVolumeIds}
           autostart={autostart}
           appVersion={appVersion}
           updateStatus={updateStatus}
@@ -1408,6 +1505,8 @@ export const App: React.FC = () => {
           onSelectDashboard={handleSelectDashboard}
           onRefreshOverview={handleRefreshOverview}
           onUpdateSettings={updateSettings}
+          onCalibrateVolume={handleCalibrateVolume}
+          onResetVolumeCalibration={handleResetVolumeCalibration}
           onToggleAutostart={(next) => void handleToggleAutostart(next)}
           onResetPosition={handleResetPosition}
           onCheckUpdate={(installNow) =>

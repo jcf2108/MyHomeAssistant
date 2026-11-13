@@ -15,7 +15,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { HaEntity } from '../types/ha';
+import type { HaEntity, VolumeCalibration } from '../types/ha';
 import {
   getLightVisualColor,
   RGB_PRESETS,
@@ -41,10 +41,18 @@ import {
   HA_MEDIA_SUPPORT_TURN_OFF,
   HA_MEDIA_SUPPORT_TURN_ON,
   supportsVolumeMute,
+  supportsVolumeSet,
 } from '../utils/mediaRouting';
+import {
+  displayVolumeToRawLevel,
+  formatEntityVolume,
+} from '../utils/volumeScale';
+import { VolumeScaleBadge } from './VolumeScaleBadge';
 
 export interface HaTileActions {
   haBaseUrl: string;
+  volumeScales: Record<string, VolumeCalibration>;
+  unreliableVolumeIds: ReadonlySet<string>;
   onPrimaryToggle: (entity: HaEntity) => void;
   onLightBrightness: (entityId: string, pct: number) => void;
   onLightColorTemp: (entityId: string, kelvin: number) => void;
@@ -53,10 +61,12 @@ export interface HaTileActions {
   onMediaPrev: (entity: HaEntity) => void;
   onMediaNext: (entity: HaEntity) => void;
   onMediaPowerToggle: (entity: HaEntity) => void;
-  onMediaVolumeSet: (entity: HaEntity, pct: number) => void;
+  onMediaVolumeSetRaw: (entity: HaEntity, rawLevel: number) => void;
   onMediaVolumeStep: (entity: HaEntity, direction: 'up' | 'down') => void;
   onMediaMuteToggle: (entity: HaEntity) => void;
   onMediaSelectSource: (entity: HaEntity, source: string) => void;
+  onCalibrateVolume: (entity: HaEntity, rawInput: string) => boolean;
+  onResetVolumeCalibration: (entityId: string) => void;
   onCoverCommand: (entityId: string, cmd: 'open_cover' | 'close_cover' | 'stop_cover') => void;
   onCoverPosition: (entityId: string, position: number) => void;
   onClimateTemp: (entityId: string, temp: number) => void;
@@ -157,10 +167,13 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
   const mediaSources = Array.isArray(entity.attributes.source_list)
     ? entity.attributes.source_list
     : [];
-  const mediaHasNumericVol = typeof entity.attributes.volume_level === 'number';
-  const mediaVolPct = mediaHasNumericVol
-    ? Math.round((entity.attributes.volume_level as number) * 100)
-    : 0;
+  const mediaHasNumericVol =
+    typeof entity.attributes.volume_level === 'number' &&
+    !actions.unreliableVolumeIds.has(entity.entity_id);
+  const mediaCanDragVol = mediaHasNumericVol && supportsVolumeSet(entity);
+  const mediaVolInfo = mediaHasNumericVol
+    ? formatEntityVolume(entity, actions.volumeScales)
+    : null;
 
   return (
     <div
@@ -488,26 +501,54 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
                 <Minus className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>
 
-              {mediaHasNumericVol ? (
+              {mediaVolInfo ? (
                 <>
-                  <input
-                    type="range"
-                    aria-label={`Volume ${displayName}`}
-                    min={0}
-                    max={100}
-                    value={entity.attributes.is_volume_muted ? 0 : mediaVolPct}
-                    onChange={(e) => actions.onMediaVolumeSet(entity, Number(e.target.value))}
-                    style={
-                      {
-                        '--slider-pct': `${entity.attributes.is_volume_muted ? 0 : mediaVolPct}%`,
-                        '--slider-fill': '#60a5fa',
-                      } as React.CSSProperties
-                    }
-                    className="fluent-range flex-1"
+                  {mediaCanDragVol ? (
+                    <input
+                      type="range"
+                      aria-label={`Volume ${displayName}`}
+                      min={mediaVolInfo.min}
+                      max={mediaVolInfo.max}
+                      step={1}
+                      value={mediaVolInfo.displayValue}
+                      onChange={(e) =>
+                        actions.onMediaVolumeSetRaw(
+                          entity,
+                          displayVolumeToRawLevel(
+                            Number(e.target.value),
+                            mediaVolInfo.calibration,
+                          ),
+                        )
+                      }
+                      style={
+                        {
+                          '--slider-pct': `${mediaVolInfo.barPct}%`,
+                          '--slider-fill': '#60a5fa',
+                        } as React.CSSProperties
+                      }
+                      className="fluent-range flex-1"
+                    />
+                  ) : (
+                    <div
+                      aria-hidden="true"
+                      className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.12]"
+                    >
+                      <div
+                        style={{ width: `${mediaVolInfo.barPct}%` }}
+                        className="h-full rounded-full bg-fluent-accent"
+                      />
+                    </div>
+                  )}
+
+                  <VolumeScaleBadge
+                    label={mediaVolInfo.label}
+                    displayValue={mediaVolInfo.displayValue}
+                    maxScale={mediaVolInfo.calibration.scale}
+                    rawVolumeLevel={entity.attributes.volume_level as number}
+                    calibrated={mediaVolInfo.calibrated}
+                    onCalibrate={(input) => actions.onCalibrateVolume(entity, input)}
+                    onReset={() => actions.onResetVolumeCalibration(entity.entity_id)}
                   />
-                  <span className="w-8 shrink-0 text-right text-[11px] font-medium text-fluent-secondary tabular-data">
-                    {entity.attributes.is_volume_muted ? '0%' : `${mediaVolPct}%`}
-                  </span>
                 </>
               ) : (
                 <span className="flex-1 text-center text-[11px] text-fluent-secondary">

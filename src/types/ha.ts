@@ -198,10 +198,18 @@ export interface HaOverviewMetadata {
   deviceRegistry: Record<string, HaDeviceRegistryEntry>;
 }
 
+export interface VolumeCalibration {
+  offset: number;
+  scale: number;
+  unit: '%' | '' | ' dB';
+}
+
 export interface AppSettings {
   haUrl: string;
   /** 'auto' (Ampli actif > Télé active > Lecteur actif) ou entity_id explicite */
   volumeTargetMode: string;
+  /** Étalonnage d'échelle par entity_id pour aligner l'affichage sur l'écran réel de la TV / de l'Ampli */
+  volumeScales: Record<string, VolumeCalibration>;
   activeMediaPlayerId: string;
   selectedDashboardPath: string | null;
   selectedViewIndex: number;

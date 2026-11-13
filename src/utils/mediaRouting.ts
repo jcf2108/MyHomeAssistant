@@ -16,7 +16,7 @@ export const HA_MEDIA_SUPPORT_PLAY = 16384;
 export type AudioDeviceRole = 'amp' | 'tv' | 'speaker' | 'source';
 
 const AMP_PATTERN =
-  /ampli|avr|denon|marantz|yamaha|onkyo|pioneer|nad\b|arcam|anthem|home[\s_-]?cinema|barre[\s_-]?de[\s_-]?son|soundbar|receiver|sonos[\s_-]?arc|sonos[\s_-]?beam/i;
+  /ampli|avr|denon|marantz|yamaha|onkyo|pioneer|nad\b|arcam|anthem|rotel|cambridge|heos|musiccast|home[\s_-]?cinema|\bcinema\b|\bhc\b|hifi|hi[\s_-]?fi|st[eé]r[eé]o|integra|naim|bluesound|powernode|wiim[\s_-]?amp|ambeo|dione|ht[\s_-]?a\d|hw[\s_-]?q\d|str[\s_-]|barre[\s_-]?(de[\s_-]?)?son|soundbar|receiver|sonos[\s_-]?(arc|beam|ray|playbar)|focal|cabasse|harman|klipsch/i;
 
 const TV_PATTERN =
   /\btv\b|télé|tele\b|oled|qled|bravia|webos|tizen|samsung|lg[\s_-]|philips|panasonic|hisense|tcl\b|android[\s_-]?tv|google[\s_-]?tv/i;

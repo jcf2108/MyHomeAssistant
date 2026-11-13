@@ -9,11 +9,16 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { HaConnectionStatus, HaEntity, VolumeFeedbackBadge } from '../types/ha';
+import type {
+  HaConnectionStatus,
+  HaEntity,
+  VolumeCalibration,
+  VolumeFeedbackBadge,
+} from '../types/ha';
 import { shortEntityLabel } from '../utils/color';
 import { type DragStartCoords, handleSmartSurfacePointerDown } from '../utils/dragGesture';
 import { getHaTileAccentColor, renderHaEntityIcon } from '../utils/haIcons';
-import { supportsVolumeSet } from '../utils/mediaRouting';
+import { formatEntityVolume } from '../utils/volumeScale';
 
 interface MiniPillProps {
   status: HaConnectionStatus;
@@ -21,6 +26,7 @@ interface MiniPillProps {
   playbackPlayer: HaEntity | null;
   volumeTarget: HaEntity | null;
   unreliableVolumeIds: ReadonlySet<string>;
+  volumeScales: Record<string, VolumeCalibration>;
   coverUrl: string | null;
   favoriteEntities: HaEntity[];
   volumeFeedback: VolumeFeedbackBadge | null;
@@ -38,6 +44,7 @@ export const MiniPill: React.FC<MiniPillProps> = ({
   playbackPlayer,
   volumeTarget,
   unreliableVolumeIds,
+  volumeScales,
   coverUrl,
   favoriteEntities,
   volumeFeedback,
@@ -58,16 +65,15 @@ export const MiniPill: React.FC<MiniPillProps> = ({
   const hasRealNumericVol =
     Boolean(volSource) &&
     typeof volSource!.attributes.volume_level === 'number' &&
-    supportsVolumeSet(volSource!) &&
     !unreliableVolumeIds.has(volSource!.entity_id);
-  const currentVolumePct = hasRealNumericVol
-    ? Math.round((volSource!.attributes.volume_level as number) * 100)
+  const volInfo = hasRealNumericVol
+    ? formatEntityVolume(volSource, volumeScales)
     : null;
   const isMuted = Boolean(volSource?.attributes.is_volume_muted);
   const barPct =
     volumeFeedback?.pct !== null && volumeFeedback?.pct !== undefined
       ? volumeFeedback.pct
-      : currentVolumePct;
+      : volInfo?.barPct ?? null;
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     if (!volSource) return;
@@ -96,7 +102,7 @@ export const MiniPill: React.FC<MiniPillProps> = ({
       aria-label="Mini-pilule Home Assistant"
     >
       {volumeFeedback ? (
-        /* Retour visuel direct lors d'un réglage de volume (affiche la vraie valeur remontée par HA) */
+        /* Retour visuel direct lors d'un réglage de volume (affiche la vraie valeur étalonnée) */
         <button
           type="button"
           onClick={onExpand}
@@ -150,14 +156,14 @@ export const MiniPill: React.FC<MiniPillProps> = ({
                     shortEntityLabel(playbackPlayer, 2),
                 )}
               </span>
-              {volSource && (isMuted || currentVolumePct !== null) && (
+              {volSource && (isMuted || volInfo !== null) && (
                 <span className="inline-flex shrink-0 items-center gap-0.5 tabular-data text-fluent-secondary">
                   {isMuted ? (
                     <VolumeX className="h-3 w-3 text-fluent-danger" strokeWidth={1.75} />
                   ) : (
                     <Volume2 className="h-3 w-3" strokeWidth={1.75} />
                   )}
-                  {isMuted ? '0%' : `${currentVolumePct}%`}
+                  {isMuted ? (volInfo ? volInfo.label : '0%') : volInfo?.label}
                 </span>
               )}
             </span>

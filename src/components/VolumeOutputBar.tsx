@@ -1,22 +1,30 @@
 import React from 'react';
 import { ChevronDown, Minus, Plus, Volume2, VolumeX } from 'lucide-react';
-import type { HaEntity } from '../types/ha';
+import type { HaEntity, VolumeCalibration } from '../types/ha';
 import { shortEntityLabel } from '../utils/color';
 import {
   canControlEntityVolume,
   supportsVolumeMute,
   supportsVolumeSet,
 } from '../utils/mediaRouting';
+import {
+  displayVolumeToRawLevel,
+  formatEntityVolume,
+} from '../utils/volumeScale';
+import { VolumeScaleBadge } from './VolumeScaleBadge';
 
 interface VolumeOutputBarProps {
   volumePlayers: HaEntity[];
   volumeTargetMode: string;
   resolvedVolumeTarget: HaEntity | null;
   unreliableVolumeIds: ReadonlySet<string>;
+  volumeScales: Record<string, VolumeCalibration>;
   onChangeVolumeTargetMode: (mode: string) => void;
-  onVolumeSet: (entity: HaEntity, pct: number) => void;
+  onVolumeSetRaw: (entity: HaEntity, rawLevel: number) => void;
   onVolumeStep: (entity: HaEntity, direction: 'up' | 'down') => void;
   onMuteToggle: (entity: HaEntity) => void;
+  onCalibrateVolume: (entity: HaEntity, rawInput: string) => boolean;
+  onResetVolumeCalibration: (entityId: string) => void;
 }
 
 export const VolumeOutputBar: React.FC<VolumeOutputBarProps> = ({
@@ -24,10 +32,13 @@ export const VolumeOutputBar: React.FC<VolumeOutputBarProps> = ({
   volumeTargetMode,
   resolvedVolumeTarget,
   unreliableVolumeIds,
+  volumeScales,
   onChangeVolumeTargetMode,
-  onVolumeSet,
+  onVolumeSetRaw,
   onVolumeStep,
   onMuteToggle,
+  onCalibrateVolume,
+  onResetVolumeCalibration,
 }) => {
   const volTarget = resolvedVolumeTarget;
   if (!volTarget || !canControlEntityVolume(volTarget)) {
@@ -38,11 +49,11 @@ export const VolumeOutputBar: React.FC<VolumeOutputBarProps> = ({
     volTarget.attributes.friendly_name || shortEntityLabel(volTarget, 2);
   const hasRealNumericVol =
     typeof volTarget.attributes.volume_level === 'number' &&
-    supportsVolumeSet(volTarget) &&
     !unreliableVolumeIds.has(volTarget.entity_id);
-  const currentVolPct = hasRealNumericVol
-    ? Math.round((volTarget.attributes.volume_level as number) * 100)
-    : 0;
+  const canDragSlider = hasRealNumericVol && supportsVolumeSet(volTarget);
+  const volInfo = hasRealNumericVol
+    ? formatEntityVolume(volTarget, volumeScales)
+    : null;
   const isMuted = Boolean(volTarget.attributes.is_volume_muted);
 
   return (
@@ -107,26 +118,51 @@ export const VolumeOutputBar: React.FC<VolumeOutputBarProps> = ({
           <Minus className="h-3.5 w-3.5" strokeWidth={1.75} />
         </button>
 
-        {hasRealNumericVol ? (
+        {volInfo ? (
           <>
-            <input
-              type="range"
-              aria-label={`Volume ${volTargetName}`}
-              min={0}
-              max={100}
-              value={isMuted ? 0 : currentVolPct}
-              onChange={(e) => onVolumeSet(volTarget, Number(e.target.value))}
-              style={
-                {
-                  '--slider-pct': `${isMuted ? 0 : currentVolPct}%`,
-                  '--slider-fill': '#60a5fa',
-                } as React.CSSProperties
-              }
-              className="fluent-range flex-1"
+            {canDragSlider ? (
+              <input
+                type="range"
+                aria-label={`Volume ${volTargetName}`}
+                min={volInfo.min}
+                max={volInfo.max}
+                step={1}
+                value={volInfo.displayValue}
+                onChange={(e) =>
+                  onVolumeSetRaw(
+                    volTarget,
+                    displayVolumeToRawLevel(Number(e.target.value), volInfo.calibration),
+                  )
+                }
+                style={
+                  {
+                    '--slider-pct': `${volInfo.barPct}%`,
+                    '--slider-fill': '#60a5fa',
+                  } as React.CSSProperties
+                }
+                className="fluent-range flex-1"
+              />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/[0.12]"
+              >
+                <div
+                  style={{ width: `${volInfo.barPct}%` }}
+                  className="h-full rounded-full bg-fluent-accent"
+                />
+              </div>
+            )}
+
+            <VolumeScaleBadge
+              label={volInfo.label}
+              displayValue={volInfo.displayValue}
+              maxScale={volInfo.calibration.scale}
+              rawVolumeLevel={volTarget.attributes.volume_level as number}
+              calibrated={volInfo.calibrated}
+              onCalibrate={(input) => onCalibrateVolume(volTarget, input)}
+              onReset={() => onResetVolumeCalibration(volTarget.entity_id)}
             />
-            <span className="w-9 shrink-0 text-right text-[11px] font-semibold text-fluent-ink tabular-data">
-              {isMuted ? '0%' : `${currentVolPct}%`}
-            </span>
           </>
         ) : (
           <span className="flex-1 truncate text-center text-[11px] text-fluent-secondary">

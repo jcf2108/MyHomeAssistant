@@ -74,10 +74,13 @@ export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
         volumeTargetMode={volumeTargetMode}
         resolvedVolumeTarget={resolvedVolumeTarget}
         unreliableVolumeIds={unreliableVolumeIds}
+        volumeScales={actions.volumeScales}
         onChangeVolumeTargetMode={onChangeVolumeTargetMode}
-        onVolumeSet={actions.onMediaVolumeSet}
+        onVolumeSetRaw={actions.onMediaVolumeSetRaw}
         onVolumeStep={actions.onMediaVolumeStep}
         onMuteToggle={actions.onMediaMuteToggle}
+        onCalibrateVolume={actions.onCalibrateVolume}
+        onResetVolumeCalibration={actions.onResetVolumeCalibration}
       />
 
       {/* Onglets de vues Lovelace (si l'Aperçu comporte plusieurs vues) */}

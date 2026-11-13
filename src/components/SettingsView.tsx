@@ -20,6 +20,12 @@ import type {
 } from '../types/ha';
 import { isDomainToggleable, renderHaEntityIcon } from '../utils/haIcons';
 import { canControlEntityVolume } from '../utils/mediaRouting';
+import {
+  formatEntityVolume,
+  getEntityVolumeCalibration,
+  isEntityVolumeCalibrated,
+} from '../utils/volumeScale';
+import { VolumeScaleBadge } from './VolumeScaleBadge';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -29,6 +35,7 @@ interface SettingsViewProps {
   allEntities: Record<string, HaEntity>;
   overviewEntityIds: string[];
   dashboards: LovelaceDashboardInfo[];
+  unreliableVolumeIds: ReadonlySet<string>;
   autostart: boolean;
   appVersion: string;
   updateStatus: UpdateStatus;
@@ -37,6 +44,8 @@ interface SettingsViewProps {
   onSelectDashboard: (urlPath: string | null) => void;
   onRefreshOverview: () => void;
   onUpdateSettings: (patch: Partial<AppSettings>) => void;
+  onCalibrateVolume: (entity: HaEntity, rawInput: string) => boolean;
+  onResetVolumeCalibration: (entityId: string) => void;
   onToggleAutostart: (next: boolean) => void;
   onResetPosition: () => void;
   onCheckUpdate: (installNow: boolean) => void;
@@ -52,6 +61,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   allEntities,
   overviewEntityIds,
   dashboards,
+  unreliableVolumeIds,
   autostart,
   appVersion,
   updateStatus,
@@ -60,6 +70,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSelectDashboard,
   onRefreshOverview,
   onUpdateSettings,
+  onCalibrateVolume,
+  onResetVolumeCalibration,
   onToggleAutostart,
   onResetPosition,
   onCheckUpdate,
@@ -344,6 +356,75 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </div>
             </div>
+
+            {/* Étalonnage d'échelle par appareil (Télé & Ampli) */}
+            {volumePlayers.length > 0 && (
+              <div className="flex flex-col gap-1.5 border-b border-white/[0.06] pb-3">
+                <span className="text-xs font-medium text-fluent-ink">
+                  Étalonnage TV / Ampli
+                </span>
+                <div className="flex flex-col gap-1">
+                  {volumePlayers.map((mp) => {
+                    const hasLiveVol =
+                      typeof mp.attributes.volume_level === 'number' &&
+                      !unreliableVolumeIds.has(mp.entity_id);
+                    const liveInfo = hasLiveVol
+                      ? formatEntityVolume(mp, settings.volumeScales)
+                      : null;
+                    const cal = getEntityVolumeCalibration(
+                      mp.entity_id,
+                      settings.volumeScales,
+                    );
+                    const calibrated = isEntityVolumeCalibrated(
+                      mp.entity_id,
+                      settings.volumeScales,
+                    );
+                    const badgeLabel = liveInfo
+                      ? liveInfo.label
+                      : cal.unit === ' dB'
+                        ? 'dB'
+                        : `Max ${Math.round(cal.scale)}${cal.unit}`;
+
+                    return (
+                      <div
+                        key={mp.entity_id}
+                        className="flex items-center justify-between gap-2 rounded-control bg-fluent-elevated px-2.5 py-1.5"
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          <span className="text-fluent-secondary">
+                            {renderHaEntityIcon(mp, undefined, 'h-3.5 w-3.5')}
+                          </span>
+                          <span className="truncate text-xs text-fluent-ink">
+                            {mp.attributes.friendly_name || mp.entity_id}
+                          </span>
+                        </span>
+
+                        <div className="flex shrink-0 items-center gap-1">
+                          {calibrated && liveInfo && (
+                            <span className="text-[11px] text-fluent-secondary tabular-data">
+                              /{Math.round(cal.offset + cal.scale)}
+                            </span>
+                          )}
+                          <VolumeScaleBadge
+                            label={badgeLabel}
+                            displayValue={
+                              liveInfo ? liveInfo.displayValue : Math.round(cal.scale)
+                            }
+                            maxScale={cal.scale}
+                            rawVolumeLevel={
+                              hasLiveVol ? (mp.attributes.volume_level as number) : null
+                            }
+                            calibrated={calibrated}
+                            onCalibrate={(input) => onCalibrateVolume(mp, input)}
+                            onReset={() => onResetVolumeCalibration(mp.entity_id)}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Sélection des 3 favoris de la Mini-Pilule */}
             <div className="flex items-center justify-between">
