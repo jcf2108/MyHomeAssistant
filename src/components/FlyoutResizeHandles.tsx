@@ -50,6 +50,11 @@ export const FlyoutResizeHandles: React.FC<FlyoutResizeHandlesProps> = ({
       if (e.button !== 0) return;
       e.preventDefault();
       e.stopPropagation();
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // ignore if synthetic pointer
+      }
       onResizePointerDown(direction, e);
     };
 

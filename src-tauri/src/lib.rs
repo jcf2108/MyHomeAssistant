@@ -145,6 +145,8 @@ pub fn run() {
             media_hook::set_pc_grace_seconds,
             window_ctl::set_widget_expanded,
             window_ctl::set_window_focusable,
+            window_ctl::start_window_drag,
+            window_ctl::start_flyout_resize,
             window_ctl::record_pill_position,
             window_ctl::reset_pill_above_clock,
         ])
