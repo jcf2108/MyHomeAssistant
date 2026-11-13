@@ -164,7 +164,7 @@ La palette associe une base anthracite froide translucide fidèle à Windows 11 
 
 L'interface repose sur deux gabarits fixes liés par un point d'ancrage commun (par défaut à `12px` au-dessus de la zone de notification Windows, déplaçable librement sur tout moniteur) :
 - **Mini-Pilule repliée (`316px × 52px`)** : barre horizontale unique combinant poignée de déplacement, vignette ou favoris rapides, actions directes, bouton d'ouverture et jauge inférieure continue de `2.5px`.
-- **Flyout déployé (`360px` de large, jusqu'à `640px` de haut)** : pile verticale sans défilement superflu regroupant l'en-tête (`40px`), le module Média encadré (`margin: 10px 12px 6px`), la section `Lumières` en bandes pleine largeur (`gap: 6px`), la grille `Scènes` en `2` colonnes égales (`gap: 6px`) et le pied d'état (`40px`). Sur les écrans étroits (`390px`), le panneau se contraint via `max-width: calc(100vw - 24px)` sans débordement horizontal.
+- **Flyout déployé (`420px` par défaut, redimensionnable librement de `320px` à `1400px`)** : pile verticale structurée regroupant l'en-tête (`40px`), la barre de sortie volume, les onglets de vues Lovelace éventuels, et les sections en sous-grille modulaire dense (`6` à `16` colonnes : **3 à 8 tuiles carrées `aspect-square` non rognées par ligne** pour les Scènes, la Musique et les Jeux, `2` à `4` tuiles horizontales/sélecteurs et `1` à `2` lecteurs multimédias larges) coiffées du pied d'état (`32px`).
 
 ## Elevation & Depth
 

@@ -101,22 +101,52 @@ export interface LovelaceBadgeItem {
   icon?: string;
 }
 
+export interface LovelaceActionConfig {
+  action?: 'toggle' | 'call-service' | 'perform-action' | 'more-info' | 'navigate' | 'url' | 'none' | string;
+  perform_action?: string;
+  service?: string;
+  target?: {
+    entity_id?: string | string[];
+    device_id?: string | string[];
+    area_id?: string | string[];
+  };
+  data?: Record<string, unknown>;
+  service_data?: Record<string, unknown>;
+  url_path?: string;
+}
+
+export interface LovelaceCardEntryObject {
+  entity: string;
+  name?: string;
+  icon?: string;
+  image?: string | { media_content_id?: string };
+  picture?: string;
+  show_name?: boolean;
+  show_entity_picture?: boolean;
+  tap_action?: LovelaceActionConfig;
+}
+
 export interface LovelaceCardConfig {
   type?: string;
   entity?: string;
-  entities?: Array<string | { entity: string; name?: string; icon?: string }>;
+  entities?: Array<string | LovelaceCardEntryObject>;
   name?: string;
   title?: string;
+  alt_text?: string;
   heading?: string;
   heading_style?: 'title' | 'subtitle';
   icon?: string;
   color?: string;
   image?: string | { media_content_id?: string };
   picture?: string;
+  image_entity?: string;
   camera_image?: string;
   area?: string;
   vertical?: boolean;
+  show_name?: boolean;
+  show_state?: boolean;
   show_entity_picture?: boolean;
+  tap_action?: LovelaceActionConfig;
   features?: LovelaceFeatureConfig[];
   cards?: LovelaceCardConfig[];
   conditions?: LovelaceCondition[];

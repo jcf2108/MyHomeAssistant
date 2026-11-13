@@ -132,15 +132,19 @@ export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
         </div>
       )}
 
-      {/* Sections & Grille adaptative (2 à 4 colonnes selon la largeur du Flyout) */}
-      <div className="flex flex-col gap-3.5 px-3.5 py-3">
+      {/* Sections & Grille adaptative haute densité (tuiles carrées 3 à 8 par ligne + modules larges) */}
+      <div className="flex flex-col gap-3.5 px-3 py-3">
         {sections.length === 0 ? (
           <div className="py-8 text-center text-xs text-fluent-secondary">
             Aucune tuile trouvée
           </div>
         ) : (
           sections.map((section) => {
-            const renderedItems = section.items.filter((it) => Boolean(entities[it.entityId]));
+            const renderedItems = section.items.filter((it) =>
+              it.entityId
+                ? Boolean(entities[it.entityId])
+                : Boolean(it.imageUrl || it.tapAction),
+            );
             if (renderedItems.length === 0 && section.badges.length === 0) return null;
 
             return (
@@ -184,12 +188,12 @@ export const LovelaceDashboardView: React.FC<LovelaceDashboardViewProps> = ({
                   />
                 )}
 
-                <div className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3 min-[800px]:grid-cols-4">
+                <div className="grid grid-flow-row-dense grid-cols-6 gap-2 min-[540px]:grid-cols-8 min-[680px]:grid-cols-10 min-[820px]:grid-cols-12 min-[1080px]:grid-cols-[repeat(16,minmax(0,1fr))]">
                   {renderedItems.map((tile) => (
                     <HaTileCard
                       key={tile.key}
                       tile={tile}
-                      entity={entities[tile.entityId]}
+                      entity={tile.entityId ? entities[tile.entityId] : undefined}
                       actions={actions}
                     />
                   ))}

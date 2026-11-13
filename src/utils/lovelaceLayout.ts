@@ -3,6 +3,7 @@ import type {
   HaDeviceRegistryEntry,
   HaEntity,
   HaEntityRegistryEntry,
+  LovelaceActionConfig,
   LovelaceBadgeItem,
   LovelaceCardConfig,
   LovelaceCondition,
@@ -24,6 +25,10 @@ export interface NormalizedTileItem {
   icon?: string;
   imageUrl?: string;
   showBanner?: boolean;
+  showName?: boolean;
+  showEntityPicture?: boolean;
+  vertical?: boolean;
+  tapAction?: LovelaceActionConfig;
   cardType: string;
   fullWidth: boolean;
   features: LovelaceFeatureConfig[];
@@ -93,16 +98,44 @@ function parseBadges(
   return out;
 }
 
+function resolveRawImageRef(
+  raw: unknown,
+  entities: Record<string, HaEntity>,
+): string | undefined {
+  let candidate: string | undefined;
+  if (typeof raw === 'string' && raw.trim()) {
+    candidate = raw.trim();
+  } else if (raw && typeof raw === 'object') {
+    const mediaId = (raw as { media_content_id?: unknown }).media_content_id;
+    if (typeof mediaId === 'string' && mediaId.trim()) {
+      candidate = mediaId.trim();
+    }
+  }
+  if (!candidate) return undefined;
+
+  if (candidate.startsWith('media-source://image_upload/')) {
+    const uploadId = candidate.slice('media-source://image_upload/'.length).replace(/^\/+/, '');
+    if (uploadId) return `/api/image/serve/${uploadId}/512x512`;
+  }
+  if (candidate.startsWith('media-source://image/')) {
+    const entityId = candidate.slice('media-source://image/'.length).replace(/^\/+/, '');
+    if (entityId && entities[entityId]?.attributes.entity_picture) {
+      return entities[entityId].attributes.entity_picture;
+    }
+  }
+  return candidate;
+}
+
 function extractCardImage(
   card: LovelaceCardConfig,
   entities: Record<string, HaEntity>,
 ): string | undefined {
-  if (typeof card.image === 'string' && card.image.trim()) {
-    return card.image.trim();
-  }
-  if (typeof card.picture === 'string' && card.picture.trim()) {
-    return card.picture.trim();
-  }
+  const direct =
+    resolveRawImageRef(card.image, entities) ||
+    resolveRawImageRef(card.picture, entities) ||
+    resolveRawImageRef(card.background_image, entities);
+  if (direct) return direct;
+
   if (typeof card.camera_image === 'string' && entities[card.camera_image]) {
     return entities[card.camera_image].attributes.entity_picture;
   }
@@ -118,13 +151,15 @@ function isCardFullWidth(card: LovelaceCardConfig, entityId: string): boolean {
   const t = (card.type || '').toLowerCase();
   const domain = entityId.split('.')[0];
 
+  if (t === 'picture-entity' || t === 'picture' || t === 'button') {
+    return false;
+  }
+
   if (
     t === 'media-control' ||
     t === 'thermostat' ||
     t === 'humidifier' ||
     t === 'weather-forecast' ||
-    t === 'picture-entity' ||
-    t === 'picture-glance' ||
     t.includes('media-player')
   ) {
     return true;
@@ -139,7 +174,7 @@ function isCardFullWidth(card: LovelaceCardConfig, entityId: string): boolean {
     return true;
   }
 
-  if ((domain === 'media_player' || domain === 'camera') && t !== 'button') {
+  if (domain === 'media_player' || domain === 'camera') {
     return true;
   }
 
@@ -325,15 +360,23 @@ function collectCardsIntoSections(
             features: [],
           });
         } else if (entry && typeof entry === 'object' && typeof entry.entity === 'string') {
+          const entryImg =
+            resolveRawImageRef(entry.image, entities) ||
+            resolveRawImageRef(entry.picture, entities);
           groupItems.push({
             key: `${prefixKey}-${idx}-e-${eIdx}`,
             entityId: entry.entity,
             name: entry.name,
             icon: entry.icon,
+            imageUrl: entryImg,
+            showName: entry.show_name,
+            showEntityPicture: entry.show_entity_picture,
+            tapAction: entry.tap_action,
             cardType: type || 'entities',
             fullWidth:
-              entry.entity.startsWith('media_player.') ||
-              entry.entity.startsWith('camera.'),
+              !entryImg &&
+              (entry.entity.startsWith('media_player.') ||
+                entry.entity.startsWith('camera.')),
             features: [],
           });
         }
@@ -361,15 +404,11 @@ function collectCardsIntoSections(
       return;
     }
 
-    // 6. Toute tuile / carte mono-entité ('tile', 'button', 'picture-entity', 'light', 'media-control', 'thermostat', 'custom:*', etc.)
+    // 6. Toute tuile / carte mono-entité ou carte image/bouton autonome ('tile', 'button', 'picture-entity', 'picture', 'light', 'media-control', 'thermostat', 'custom:*', etc.)
     if (typeof card.entity === 'string' && card.entity.includes('.')) {
       const domain = card.entity.split('.')[0];
       const cardImg = extractCardImage(card, entities);
-      const showBanner =
-        type === 'picture-entity' ||
-        type === 'picture' ||
-        domain === 'camera' ||
-        domain === 'image';
+      const isLiveCamera = domain === 'camera';
 
       currentSection.items.push({
         key: `${prefixKey}-tile-${idx}`,
@@ -377,10 +416,40 @@ function collectCardsIntoSections(
         name: card.name || card.title,
         icon: card.icon,
         imageUrl: cardImg,
-        showBanner,
+        showBanner: isLiveCamera,
+        showName: card.show_name,
+        showEntityPicture: card.show_entity_picture,
+        vertical: card.vertical,
+        tapAction: card.tap_action,
         cardType: type || 'tile',
-        fullWidth: showBanner || isCardFullWidth(card, card.entity),
+        fullWidth: isLiveCamera || isCardFullWidth(card, card.entity),
         features: Array.isArray(card.features) ? card.features : [],
+      });
+      return;
+    }
+
+    // 7. Carte visuelle sans entité directe (ex: 'picture' ou 'button' Musique / Jeux pilotée par tap_action)
+    const standaloneImg = extractCardImage(card, entities);
+    if (
+      standaloneImg ||
+      (card.tap_action && (type === 'picture' || type === 'button' || type.startsWith('custom:')))
+    ) {
+      const explicitLabel = card.name || card.title || card.alt_text;
+      currentSection.items.push({
+        key: `${prefixKey}-pic-${idx}`,
+        entityId: '',
+        name: explicitLabel,
+        icon: card.icon,
+        imageUrl: standaloneImg,
+        showBanner: false,
+        showName:
+          card.show_name !== undefined ? card.show_name : Boolean(card.name || card.title),
+        showEntityPicture: true,
+        vertical: true,
+        tapAction: card.tap_action,
+        cardType: type || 'picture',
+        fullWidth: false,
+        features: [],
       });
     }
   });
@@ -442,7 +511,7 @@ export function extractOverviewEntityIds(
     }
     for (const sec of sections) {
       for (const item of sec.items) {
-        if (!seen.has(item.entityId)) {
+        if (item.entityId && !seen.has(item.entityId)) {
           seen.add(item.entityId);
           ordered.push(item.entityId);
         }

@@ -43,6 +43,7 @@ import type {
   HaConnectionStatus,
   HaEntity,
   HaOverviewMetadata,
+  LovelaceActionConfig,
   NativeKeyCommand,
   TrayAction,
   UpdateStatus,
@@ -966,12 +967,55 @@ export const App: React.FC = () => {
     [applyEntityOptimistic, triggerPlayPause, usingPreview],
   );
 
+  const handleExecuteTapAction = useCallback(
+    (tapAction: LovelaceActionConfig, fallbackEntity?: HaEntity) => {
+      const kind = tapAction.action || 'toggle';
+      if (kind === 'none') return;
+
+      if (kind === 'perform-action' || kind === 'call-service') {
+        const rawSvc = tapAction.perform_action || tapAction.service || '';
+        const dotIdx = rawSvc.indexOf('.');
+        if (dotIdx <= 0) return;
+        const svcDomain = rawSvc.slice(0, dotIdx);
+        const svcName = rawSvc.slice(dotIdx + 1);
+        const rawData = { ...(tapAction.data || tapAction.service_data || {}) };
+
+        let targetEntityId: string | string[] | undefined = tapAction.target?.entity_id;
+        if (!targetEntityId && (typeof rawData.entity_id === 'string' || Array.isArray(rawData.entity_id))) {
+          targetEntityId = rawData.entity_id as string | string[];
+          delete rawData.entity_id;
+        }
+        if (!targetEntityId && fallbackEntity?.entity_id) {
+          targetEntityId = fallbackEntity.entity_id;
+        }
+
+        if (!usingPreview) {
+          void wsClientRef.current
+            ?.callService(
+              svcDomain,
+              svcName,
+              rawData,
+              targetEntityId ? { entity_id: targetEntityId } : undefined,
+            )
+            .catch(() => {});
+        }
+        return;
+      }
+
+      if (fallbackEntity) {
+        handlePrimaryTileToggle(fallbackEntity);
+      }
+    },
+    [handlePrimaryTileToggle, usingPreview],
+  );
+
   const tileActions = useMemo<HaTileActions>(
     () => ({
       haBaseUrl: settings.haUrl,
       volumeScales: settings.volumeScales,
       unreliableVolumeIds,
       onPrimaryToggle: handlePrimaryTileToggle,
+      onExecuteTapAction: handleExecuteTapAction,
       onLightBrightness: (entityId, pct) => {
         const clamped = Math.max(0, Math.min(100, Math.round(pct)));
         applyEntityOptimistic(entityId, (cur) => ({
@@ -1164,6 +1208,7 @@ export const App: React.FC = () => {
     [
       applyEntityOptimistic,
       handleCalibrateVolume,
+      handleExecuteTapAction,
       handlePrimaryTileToggle,
       handleResetVolumeCalibration,
       runThrottledService,

@@ -32,6 +32,7 @@ export default {
       },
       borderRadius: {
         flyout: '12px',
+        card: '10px',
         control: '8px',
         pill: '9999px',
       },

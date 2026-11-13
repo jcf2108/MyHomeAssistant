@@ -15,7 +15,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
-import type { HaEntity, VolumeCalibration } from '../types/ha';
+import type { HaEntity, LovelaceActionConfig, VolumeCalibration } from '../types/ha';
 import {
   getLightVisualColor,
   RGB_PRESETS,
@@ -54,6 +54,7 @@ export interface HaTileActions {
   volumeScales: Record<string, VolumeCalibration>;
   unreliableVolumeIds: ReadonlySet<string>;
   onPrimaryToggle: (entity: HaEntity) => void;
+  onExecuteTapAction: (tapAction: LovelaceActionConfig, fallbackEntity?: HaEntity) => void;
   onLightBrightness: (entityId: string, pct: number) => void;
   onLightColorTemp: (entityId: string, kelvin: number) => void;
   onLightRgb: (entityId: string, rgb: [number, number, number]) => void;
@@ -101,59 +102,224 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
     setImgError(false);
   }, [rawPicture]);
 
-  if (!entity) return null;
+  if (!entity && !tile.imageUrl && !tile.tapAction) return null;
 
-  const domain = entity.entity_id.split('.')[0];
-  const active = isHaEntityActive(entity);
-  const accentColor = getHaTileAccentColor(entity);
-  const toggleable = isDomainToggleable(domain);
+  const domain = entity ? entity.entity_id.split('.')[0] : 'picture';
+  const active = entity ? isHaEntityActive(entity) : false;
+  const accentColor = entity ? getHaTileAccentColor(entity) : null;
+  const toggleable = entity ? isDomainToggleable(domain) : Boolean(tile.tapAction);
   const isStatelessTrigger =
-    domain === 'scene' || domain === 'script' || domain === 'button' || domain === 'input_button';
+    !entity ||
+    domain === 'scene' ||
+    domain === 'script' ||
+    domain === 'button' ||
+    domain === 'input_button';
 
   const displayName =
-    tile.name || entity.attributes.friendly_name || shortEntityLabel(entity, 3);
-  const stateLabel = justTriggered ? 'Activé' : formatHaStateShort(entity);
+    tile.name ||
+    entity?.attributes.friendly_name ||
+    (entity ? shortEntityLabel(entity, 3) : '');
+  const stateLabel = justTriggered
+    ? 'Activé'
+    : entity
+      ? formatHaStateShort(entity)
+      : '';
 
-  const hasRichDetails =
-    (domain === 'light' &&
-      (typeof entity.attributes.brightness === 'number' ||
-        lightSupportsColorTemp(entity) ||
-        lightSupportsRgb(entity))) ||
-    domain === 'media_player' ||
-    domain === 'cover' ||
-    domain === 'climate' ||
-    (domain === 'select' && Array.isArray(entity.attributes.options)) ||
-    (domain === 'input_select' && Array.isArray(entity.attributes.options)) ||
-    domain === 'number' ||
-    domain === 'input_number';
+  const isShortcutCard =
+    tile.cardType === 'picture-entity' ||
+    tile.cardType === 'picture' ||
+    tile.cardType === 'button';
 
-  const hasInlineFeatures = tile.features.length > 0 || domain === 'media_player';
-  const showControls = expanded || hasInlineFeatures;
-  const spansFullRow = tile.fullWidth || showControls;
+  const hasRichDetails = Boolean(
+    entity &&
+      ((domain === 'light' &&
+        (typeof entity.attributes.brightness === 'number' ||
+          lightSupportsColorTemp(entity) ||
+          lightSupportsRgb(entity))) ||
+        (domain === 'media_player' && !isShortcutCard) ||
+        domain === 'cover' ||
+        domain === 'climate' ||
+        ((domain === 'select' || domain === 'input_select') &&
+          Array.isArray(entity.attributes.options)) ||
+        domain === 'number' ||
+        domain === 'input_number'),
+  );
+
+  const hasInlineFeatures =
+    tile.features.length > 0 || (domain === 'media_player' && !isShortcutCard);
+  const showControls = Boolean(entity) && (expanded || hasInlineFeatures);
+
+  const triggerFlash = () => {
+    setJustTriggered(true);
+    window.setTimeout(() => setJustTriggered(false), 900);
+  };
 
   const handlePrimaryClick = () => {
+    if (tile.tapAction?.action && tile.tapAction.action !== 'more-info') {
+      if (tile.tapAction.action === 'none') return;
+      actions.onExecuteTapAction(tile.tapAction, entity);
+      if (
+        isStatelessTrigger ||
+        tile.tapAction.action === 'perform-action' ||
+        tile.tapAction.action === 'call-service'
+      ) {
+        triggerFlash();
+      }
+      return;
+    }
+
+    if (!entity) return;
     if (!toggleable) {
       if (hasRichDetails) setExpanded((v) => !v);
       return;
     }
     actions.onPrimaryToggle(entity);
     if (isStatelessTrigger) {
-      setJustTriggered(true);
-      window.setTimeout(() => setJustTriggered(false), 900);
+      triggerFlash();
     }
   };
 
-  const resolvedPictureUrl = resolveHaMediaUrl(actions.haBaseUrl, rawPicture);
+  const canShowPicture = tile.showEntityPicture !== false;
+  const resolvedPictureUrl = canShowPicture
+    ? resolveHaMediaUrl(actions.haBaseUrl, rawPicture)
+    : null;
   const validPictureUrl =
     resolvedPictureUrl &&
     !imgError &&
     (domain !== 'media_player' ||
       Boolean(tile.imageUrl) ||
-      entity.state === 'playing' ||
-      entity.state === 'paused')
+      isShortcutCard ||
+      entity?.state === 'playing' ||
+      entity?.state === 'paused')
       ? resolvedPictureUrl
       : null;
-  const showBannerImage = Boolean(tile.showBanner && validPictureUrl);
+
+  const isLiveCameraBanner = Boolean(tile.showBanner && domain === 'camera' && validPictureUrl);
+  const isSquareVisualTile =
+    !isLiveCameraBanner && !showControls && domain !== 'person' && Boolean(validPictureUrl);
+  const isSquareActionTile =
+    !isLiveCameraBanner &&
+    !showControls &&
+    !isSquareVisualTile &&
+    (isStatelessTrigger || tile.cardType === 'button' || Boolean(tile.vertical));
+  const isSquareTile = isSquareVisualTile || isSquareActionTile;
+
+  // Format Tuile Carrée compacte (Scènes, Musique, Jeux, boutons & cartes à image non rognée)
+  if (isSquareTile) {
+    const showCaption = tile.showName !== false && Boolean(displayName);
+    const clickable = toggleable || hasRichDetails || Boolean(tile.tapAction);
+
+    return (
+      <div
+        style={
+          active && accentColor && !justTriggered
+            ? { borderColor: `${accentColor}88` }
+            : undefined
+        }
+        className={`col-span-2 flex flex-col rounded-card border p-1.5 transition-colors duration-150 ${
+          justTriggered
+            ? 'border-fluent-online/55 bg-fluent-online/10'
+            : active
+              ? 'border-fluent-accent/55 bg-fluent-elevated'
+              : 'border-white/[0.06] bg-fluent-elevated/85 hover:border-white/[0.14] hover:bg-fluent-hover/75'
+        }`}
+      >
+        <button
+          type="button"
+          onClick={handlePrimaryClick}
+          title={displayName || undefined}
+          className={`flex w-full flex-col text-left ${
+            clickable ? 'cursor-pointer' : 'cursor-default'
+          }`}
+        >
+          <span className="relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-control border border-white/[0.06] bg-[#0e1015]">
+            {validPictureUrl ? (
+              <img
+                src={validPictureUrl}
+                alt=""
+                draggable={false}
+                onError={() => setImgError(true)}
+                className="h-full w-full object-contain"
+              />
+            ) : (
+              <span
+                style={
+                  accentColor
+                    ? {
+                        backgroundColor: `${accentColor}26`,
+                        color: accentColor,
+                      }
+                    : undefined
+                }
+                className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-150 ${
+                  justTriggered
+                    ? 'bg-fluent-online/25 text-fluent-online'
+                    : accentColor
+                      ? ''
+                      : 'bg-white/[0.07] text-fluent-secondary'
+                }`}
+              >
+                {justTriggered ? (
+                  <Check className="h-5 w-5" strokeWidth={2.25} />
+                ) : (
+                  renderHaEntityIcon(entity, tile.icon, 'h-5 w-5')
+                )}
+              </span>
+            )}
+          </span>
+        </button>
+
+        {showCaption && (
+          <div className="mt-1.5 flex items-center justify-between gap-1 px-0.5">
+            <button
+              type="button"
+              onClick={handlePrimaryClick}
+              title={displayName}
+              className={`min-w-0 flex-1 truncate text-left text-xs font-semibold leading-tight text-fluent-ink ${
+                clickable ? 'cursor-pointer' : 'cursor-default'
+              }`}
+            >
+              {displayName}
+            </button>
+
+            {justTriggered ? (
+              <Check className="h-3.5 w-3.5 shrink-0 text-fluent-online" strokeWidth={2.25} />
+            ) : hasRichDetails && !hasInlineFeatures ? (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                aria-label="Plus de réglages"
+                title="Réglages"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-control text-fluent-muted transition-colors hover:bg-fluent-hover hover:text-fluent-ink"
+              >
+                <SlidersHorizontal className="h-3 w-3" strokeWidth={1.75} />
+              </button>
+            ) : active ? (
+              <span
+                aria-label={stateLabel}
+                title={stateLabel}
+                style={{ backgroundColor: accentColor || 'var(--accent-fluent)' }}
+                className="h-2 w-2 shrink-0 rounded-full"
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (!entity) return null;
+
+  const isInlineSelect =
+    showControls &&
+    (domain === 'select' || domain === 'input_select') &&
+    Array.isArray(entity.attributes.options);
+  const spansFullModule = tile.fullWidth || (showControls && !isInlineSelect);
+  const gridSpanClass = isInlineSelect
+    ? 'col-span-6 min-[540px]:col-span-4'
+    : spansFullModule
+      ? 'col-span-6 min-[540px]:col-span-8 min-[680px]:col-span-5 min-[820px]:col-span-6 min-[1080px]:col-span-8'
+      : 'col-span-3 min-[540px]:col-span-4 min-[680px]:col-span-5 min-[820px]:col-span-4 min-[1080px]:col-span-4';
 
   const mediaFeatures = entity.attributes.supported_features ?? 0;
   const mediaHasPower =
@@ -186,9 +352,7 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             }
           : undefined
       }
-      className={`flex flex-col rounded-card border transition-colors duration-150 ${
-        spansFullRow ? 'col-span-2' : 'col-span-1'
-      } ${
+      className={`flex flex-col rounded-card border transition-colors duration-150 ${gridSpanClass} ${
         justTriggered
           ? 'border-fluent-online/45 bg-fluent-online/10'
           : active
@@ -196,12 +360,12 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             : 'border-white/[0.06] bg-fluent-elevated/85 hover:bg-fluent-hover/75'
       } p-2.5`}
     >
-      {/* Vignette visuelle haute (cartes picture-entity, caméras, images HA) */}
-      {showBannerImage && validPictureUrl && (
+      {/* Flux caméra 16:9 complet non rogné */}
+      {isLiveCameraBanner && validPictureUrl && (
         <button
           type="button"
           onClick={handlePrimaryClick}
-          className={`mb-2 h-28 w-full overflow-hidden rounded-control border border-white/[0.06] bg-fluent-base ${
+          className={`mb-2 aspect-video w-full overflow-hidden rounded-control border border-white/[0.06] bg-[#0e1015] ${
             toggleable || hasRichDetails ? 'cursor-pointer' : 'cursor-default'
           }`}
         >
@@ -210,21 +374,20 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             alt=""
             draggable={false}
             onError={() => setImgError(true)}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
           />
         </button>
       )}
 
       {/* Ligne principale de la Tuile Home Assistant */}
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={handlePrimaryClick}
-          className={`flex min-w-0 flex-1 items-center gap-2.5 text-left ${
+          className={`flex min-w-0 flex-1 items-center gap-2 text-left ${
             toggleable || hasRichDetails ? 'cursor-pointer' : 'cursor-default'
           }`}
         >
-          {/* Médaillon icône ou image circulaire 36x36 style Tile HA */}
           <span
             style={
               accentColor
@@ -234,7 +397,9 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
                   }
                 : undefined
             }
-            className={`relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full transition-colors duration-150 ${
+            className={`relative flex ${
+              isInlineSelect ? 'h-7 w-7' : 'h-9 w-9'
+            } shrink-0 items-center justify-center overflow-hidden rounded-full transition-colors duration-150 ${
               justTriggered
                 ? 'bg-fluent-online/25 text-fluent-online'
                 : accentColor
@@ -242,7 +407,7 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
                   : 'bg-white/[0.06] text-fluent-secondary'
             }`}
           >
-            {!showBannerImage && validPictureUrl ? (
+            {!isLiveCameraBanner && validPictureUrl ? (
               <img
                 src={validPictureUrl}
                 alt=""
@@ -253,26 +418,32 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
             ) : justTriggered ? (
               <Check className="h-4 w-4" strokeWidth={2.25} />
             ) : (
-              renderHaEntityIcon(entity, tile.icon, 'h-4 w-4')
+              renderHaEntityIcon(
+                entity,
+                tile.icon,
+                isInlineSelect ? 'h-3.5 w-3.5' : 'h-4 w-4',
+              )
             )}
           </span>
 
-          {/* Libellé + État synthétique */}
+          {/* Libellé + État synthétique (sans répétition redondante sur les listes déroulantes) */}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-xs font-semibold leading-tight text-fluent-ink">
               {displayName}
             </span>
-            <span
-              className={`truncate text-[11px] leading-tight tabular-data ${
-                justTriggered
-                  ? 'font-medium text-fluent-online'
-                  : active
-                    ? 'text-fluent-secondary'
-                    : 'text-fluent-muted'
-              }`}
-            >
-              {stateLabel}
-            </span>
+            {!isInlineSelect && (
+              <span
+                className={`truncate text-[11px] leading-tight tabular-data ${
+                  justTriggered
+                    ? 'font-medium text-fluent-online'
+                    : active
+                      ? 'text-fluent-secondary'
+                      : 'text-fluent-muted'
+                }`}
+              >
+                {stateLabel}
+              </span>
+            )}
           </span>
         </button>
 
@@ -690,7 +861,7 @@ export const HaTileCard: React.FC<HaTileCardProps> = ({ tile, entity, actions })
       {showControls &&
         (domain === 'select' || domain === 'input_select') &&
         Array.isArray(entity.attributes.options) && (
-          <div className="mt-2 border-t border-white/[0.06] pt-2">
+          <div className="mt-1.5">
             <div className="relative">
               <select
                 aria-label={displayName}
