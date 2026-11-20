@@ -35,7 +35,7 @@ interface MiniPillProps {
   onNextTrack: () => void;
   onWheelVolume: (direction: 'up' | 'down') => void;
   onTriggerFavorite: (entity: HaEntity) => void;
-  onStartDrag: (coords: DragStartCoords) => void;
+  onStartDrag: (coords: DragStartCoords) => Promise<unknown> | void;
 }
 
 export const MiniPill: React.FC<MiniPillProps> = ({

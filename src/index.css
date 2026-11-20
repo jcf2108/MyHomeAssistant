@@ -100,6 +100,11 @@ textarea {
   animation: none;
 }
 
+.is-dragging-window,
+.is-dragging-window * {
+  cursor: grabbing !important;
+}
+
 /* Custom sleek Fluent scrollbar */
 .fluent-scroll {
   scrollbar-width: thin;

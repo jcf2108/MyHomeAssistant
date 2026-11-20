@@ -68,10 +68,10 @@ export type FlyoutResizeDirection =
   | 'SouthWest'
   | 'West';
 
-export async function startNativeWindowDrag(): Promise<void> {
-  if (!isTauriRuntime()) return;
+export async function startNativeWindowDrag(): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
   const { invoke } = await import('@tauri-apps/api/core');
-  await invoke('start_window_drag');
+  return invoke<boolean>('start_window_drag');
 }
 
 export async function startNativeResizeDrag(direction: FlyoutResizeDirection): Promise<void> {

@@ -912,9 +912,10 @@ pub fn set_widget_expanded(app: AppHandle, expanded: bool) -> Result<(), String>
 }
 
 /// Déplacement natif fluide (250 Hz) d'une fenêtre `WS_POPUP` sans `WM_NCLBUTTONDOWN(HTCAPTION)` :
-/// n'active jamais la pilule (`WS_EX_NOACTIVATE` préservé) et ne déclenche aucun `WM_NCACTIVATE`.
+/// n'active jamais la pilule (`WS_EX_NOACTIVATE` préservé), ne déclenche aucun `WM_NCACTIVATE`,
+/// et ne résout la promesse IPC qu'une fois le bouton souris effectivement relâché.
 #[tauri::command]
-pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
+pub async fn start_window_drag(app: AppHandle) -> Result<bool, String> {
     #[cfg(windows)]
     {
         use std::time::Duration;
@@ -928,26 +929,26 @@ pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
         };
 
         let Some(win) = app.get_window("main") else {
-            return Ok(());
+            return Ok(false);
         };
         let Ok(raw_hwnd) = win.hwnd() else {
-            return Ok(());
+            return Ok(false);
         };
         let Some(state) = app.try_state::<WindowGeometryState>() else {
-            return Ok(());
+            return Ok(false);
         };
         if state
             .pointer_op_active
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            return Ok(());
+            return Ok(false);
         }
 
         let hwnd_bits = raw_hwnd.0 as isize;
         let app_for_thread = app.clone();
 
-        std::thread::spawn(move || {
+        let moved = tauri::async_runtime::spawn_blocking(move || {
             struct OpReset<'a>(&'a AppHandle);
             impl Drop for OpReset<'_> {
                 fn drop(&mut self) {
@@ -965,7 +966,7 @@ pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
                 if GetCursorPos(&mut start_pt).is_err()
                     || GetWindowRect(hwnd, &mut start_rect).is_err()
                 {
-                    return;
+                    return false;
                 }
 
                 let primary_vk = if GetSystemMetrics(SM_SWAPBUTTON) != 0 {
@@ -976,7 +977,7 @@ pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
 
                 let mut last_x = start_rect.left;
                 let mut last_y = start_rect.top;
-                let mut moved = false;
+                let mut did_move = false;
 
                 while (GetAsyncKeyState(primary_vk) as u16 & 0x8000) != 0 {
                     let mut cur_pt = POINT::default();
@@ -999,13 +1000,13 @@ pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
                             );
                             last_x = next_x;
                             last_y = next_y;
-                            moved = true;
+                            did_move = true;
                         }
                     }
                     std::thread::sleep(Duration::from_millis(4));
                 }
 
-                if moved {
+                if did_move {
                     if let Some(st) = app_for_thread.try_state::<WindowGeometryState>() {
                         let expanded = st.is_expanded.lock().map(|g| *g).unwrap_or(false);
                         if !expanded {
@@ -1025,14 +1026,20 @@ pub fn start_window_drag(app: AppHandle) -> Result<(), String> {
                         }
                     }
                 }
+
+                did_move
             }
-        });
+        })
+        .await
+        .unwrap_or(false);
+
+        return Ok(moved);
     }
     #[cfg(not(windows))]
     {
         let _ = app;
+        Ok(false)
     }
-    Ok(())
 }
 
 /// Redimensionnement natif fluide 8 directions pour une fenêtre `WS_POPUP` sans `WS_THICKFRAME`.

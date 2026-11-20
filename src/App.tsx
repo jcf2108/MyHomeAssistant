@@ -1328,10 +1328,9 @@ export const App: React.FC = () => {
   };
 
   const handleStartDrag = useCallback(
-    (coords: DragStartCoords) => {
+    (coords: DragStartCoords): Promise<unknown> | void => {
       if (nativeTauri) {
-        void startNativeWindowDrag();
-        return;
+        return startNativeWindowDrag();
       }
 
       const startRight = browserOffset?.x ?? 16;
